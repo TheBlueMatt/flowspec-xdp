@@ -261,6 +261,9 @@ with open("rules.h", "w") as out:
             assert False
         out.write("#define REQ_8021Q " + args.vlan_tag + "\n")
 
+    use_v4 = False
+    use_v6 = False
+
     out.write("#define RULES \\\n")
 
     def write_rule(r):
@@ -272,10 +275,12 @@ with open("rules.h", "w") as out:
             continue
         if t[0].strip() == "flow4":
             proto = 4
+            use_v4 = True
             out.write("if (eth_proto == htons(ETH_P_IP)) { \\\n")
             out.write("\tdo {\\\n")
         elif t[0].strip() == "flow6":
             proto = 6
+            use_v6 = True
             out.write("if (eth_proto == htons(ETH_P_IPV6)) { \\\n")
             out.write("\tdo {\\\n")
         else:
@@ -322,3 +327,7 @@ with open("rules.h", "w") as out:
         out.write("\t} while(0);\\\n}\\\n")
 
     out.write("\n")
+    if use_v4:
+        out.write("#define NEED_V4_PARSE\n")
+    if use_v6:
+        out.write("#define NEED_V6_PARSE\n")

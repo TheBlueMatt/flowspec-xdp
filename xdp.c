@@ -170,14 +170,21 @@ int xdp_drop_prog(struct xdp_md *ctx)
 		}
 	}
 
-	const struct tcphdr *tcp = NULL;
-	const struct udphdr *udp = NULL;
+#ifdef NEED_V4_PARSE
+	const struct iphdr *ip = NULL;
 	const struct icmphdr *icmp = NULL;
+#endif
+#ifdef NEED_V6_PARSE
+	const struct ip6hdr *ip6 = NULL;
 	const struct icmp6hdr *icmpv6 = NULL;
 	const struct ip6_fraghdr *frag6 = NULL;
-	const struct iphdr *ip = NULL;
-	const struct ip6hdr *ip6 = NULL;
+#endif
+
 	const void *l4hdr = NULL;
+	const struct tcphdr *tcp = NULL;
+	const struct udphdr *udp = NULL;
+
+#ifdef NEED_V4_PARSE
 	if (eth_proto == BE16(ETH_P_IP)) {
 		if (unlikely(pktdata + sizeof(struct iphdr) > data_end))
 			return XDP_DROP;
@@ -204,7 +211,10 @@ int xdp_drop_prog(struct xdp_md *ctx)
 				return XDP_DROP;
 			icmp = (struct icmphdr*) l4hdr;
 		}
-	} else if (eth_proto == BE16(ETH_P_IPV6)) {
+	}
+#endif
+#ifdef NEED_V6_PARSE
+	if (eth_proto == BE16(ETH_P_IPV6)) {
 		if (unlikely(pktdata + sizeof(struct ip6hdr) > data_end))
 			return XDP_DROP;
 		ip6 = (struct ip6hdr*) pktdata;
@@ -236,9 +246,8 @@ int xdp_drop_prog(struct xdp_md *ctx)
 			icmpv6 = (struct icmp6hdr*) l4hdr;
 		}
 		// TODO: Handle some options?
-	} else {
-		return XDP_PASS;
 	}
+#endif
 
 	uint16_t sport, dport; // Host Endian! Only valid with tcp || udp
 	if (tcp != NULL) {
