@@ -104,8 +104,8 @@ struct tcphdr {
 #define MASK6(pfxlen) HTON128(~((((uint128_t)1) << (128 - pfxlen)) - 1))
 #define MASK6_OFFS(offs, pfxlen) HTON128((~((((uint128_t)1) << (128 - pfxlen)) - 1)) & ((((uint128_t)1) << (128 - offs)) - 1))
 
-// Note rules.h may also define PARSE_8021Q and REQ_8021Q
-// Note rules.h may also define PARSE_IHL
+// PARSE is used as a preprocessor flag to indicate parsing fields
+#define PARSE 42
 #include "rules.h"
 
 #define unlikely(a) __builtin_expect(a, 0)
@@ -143,7 +143,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 			return XDP_DROP;
 		const struct ethhdr *const eth = (void*)(size_t)ctx->data;
 
-#ifdef PARSE_8021Q
+#if PARSE_8021Q == PARSE
 		if (likely(eth->h_proto == BE16(ETH_P_8021Q))) {
 			if (unlikely((void*)(size_t)ctx->data + sizeof(struct ethhdr_vlan) > data_end))
 				return XDP_DROP;
@@ -156,6 +156,10 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 			eth_proto = eth_vlan->h_proto;
 			pktdata = (const void *)(long)ctx->data + sizeof(struct ethhdr_vlan);
+#else
+		if (unlikely(eth->h_proto == BE16(ETH_P_8021Q))) {
+			return PARSE_8021Q;
+#endif
 		} else {
 #ifdef REQ_8021Q
 			return XDP_DROP;
@@ -164,10 +168,6 @@ int xdp_drop_prog(struct xdp_md *ctx)
 			eth_proto = eth->h_proto;
 #endif
 		}
-#else
-		pktdata = (const void *)(long)ctx->data + sizeof(struct ethhdr);
-		eth_proto = eth->h_proto;
-#endif
 	}
 
 	const struct tcphdr *tcp = NULL;
@@ -183,13 +183,14 @@ int xdp_drop_prog(struct xdp_md *ctx)
 			return XDP_DROP;
 		ip = (struct iphdr*) pktdata;
 
-#ifdef PARSE_IHL
+#if PARSE_IHL == PARSE
 		if (unlikely(ip->ihl < 5)) return XDP_DROP;
 		l4hdr = pktdata + ip->ihl * 4;
 #else
-		if (ip->ihl != 5) return XDP_DROP;
+		if (ip->ihl != 5) return PARSE_IHL;
 		l4hdr = pktdata + 5*4;
 #endif
+
 		if (ip->protocol == IP_PROTO_TCP) {
 			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
 				return XDP_DROP;

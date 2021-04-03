@@ -3,16 +3,13 @@
 import sys
 import ipaddress
 from enum import Enum
+import argparse
+
 
 IP_PROTO_ICMP = 1
 IP_PROTO_ICMPV6 = 58
 IP_PROTO_TCP = 6
 IP_PROTO_UDP = 17
-
-if len(sys.argv) > 2 and sys.argv[2].startswith("parse_ihl"):
-    PARSE_IHL = True
-else:
-    PARSE_IHL = False
 
 class ASTAction(Enum):
     OR = 1,
@@ -239,12 +236,30 @@ def flow_label_to_rule(rules):
 if (!( {ast.write("((((uint32_t)(ip6->flow_lbl[0] & 0xf)) << 2*8) | (((uint32_t)ip6->flow_lbl[1]) << 1*8) | (uint32_t)ip6->flow_lbl[0])")} )) break;"""
 
 with open("rules.h", "w") as out:
-    if len(sys.argv) > 1 and sys.argv[1] == "parse_8021q":
-        out.write("#define PARSE_8021Q\n")
-    if len(sys.argv) > 1 and sys.argv[1].startswith("req_8021q="):
-        out.write("#define PARSE_8021Q\n")
-        out.write(f"#define REQ_8021Q {sys.argv[1][10:]}\n")
+    parse = argparse.ArgumentParser()
+    parse.add_argument("--ihl", dest="ihl", required=True, choices=["drop-options","accept-options","parse-options"])
+    parse.add_argument("--8021q", dest="vlan", required=True, choices=["drop-vlan","accept-vlan","parse-vlan"])
+    parse.add_argument("--require-8021q", dest="vlan_tag")
+    args = parse.parse_args(sys.argv[1:])
 
+    if args.ihl == "drop-options":
+        out.write("#define PARSE_IHL XDP_DROP\n")
+    elif args.ihl == "accept-options":
+        out.write("#define PARSE_IHL XDP_PASS\n")
+    elif args.ihl == "parse-options":
+        out.write("#define PARSE_IHL PARSE\n")
+
+    if args.vlan == "drop-vlan":
+        out.write("#define PARSE_8021Q XDP_DROP\n")
+    elif args.vlan == "accept-vlan":
+        out.write("#define PARSE_8021Q XDP_PASS\n")
+    elif args.vlan == "parse-vlan":
+        out.write("#define PARSE_8021Q PARSE\n")
+
+    if args.vlan_tag is not None:
+        if args.vlan != "parse-vlan":
+            assert False
+        out.write("#define REQ_8021Q " + args.vlan_tag + "\n")
 
     out.write("#define RULES \\\n")
 

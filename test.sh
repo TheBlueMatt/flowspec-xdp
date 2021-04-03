@@ -15,33 +15,33 @@ TEST_PKT='#define TEST \
 "\xb5\xc3\xa9\xa6\x21\x14\xc7\xd9\x71\x07"'
 
 # Test all the things...
-echo "flow4 { src 72.229.104.206/32; dst 103.99.170.10/32; proto = 17; sport = 56733; dport = 4242; length = 140; dscp 0/0xff; fragment !dont_fragment && !is_fragment && !first_fragment && !last_fragment };" | ./genrules.py
+echo "flow4 { src 72.229.104.206/32; dst 103.99.170.10/32; proto = 17; sport = 56733; dport = 4242; length = 140; dscp 0/0xff; fragment !dont_fragment && !is_fragment && !first_fragment && !last_fragment };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { port = 4242; icmp code = 0; };" | ./genrules.py
+echo "flow4 { port = 4242; icmp code = 0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
 # Some port tests...
-echo "flow4 { port = 4242 && = 56733; };" | ./genrules.py
+echo "flow4 { port = 4242 && = 56733; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { port = 4242 || 1; sport = 56733 };" | ./genrules.py
+echo "flow4 { port = 4242 || 1; sport = 56733 };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { port = 4242 && 1 };" | ./genrules.py
+echo "flow4 { port = 4242 && 1 };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { icmp code != 0; };" | ./genrules.py parse_8021q
+echo "flow4 { icmp code != 0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
@@ -55,17 +55,17 @@ TEST_PKT='#define TEST \
 "\x75\xde\xeb\x22\xd6\x80"'
 
 # Some v6 TCP tests...
-echo "flow6 { src 2a01:4f8:130:71d2::2/128; dst 2620:6e:a000:2001::6/128; next header 6; port 8333 && 49778; tcp flags 0x010/0xfff;};" | ./genrules.py
+echo "flow6 { src 2a01:4f8:130:71d2::2/128; dst 2620:6e:a000:2001::6/128; next header 6; port 8333 && 49778; tcp flags 0x010/0xfff;};" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 0:4f8:130:71d2::2/128 offset 16; dst 0:0:a000:2001::/64 offset 32; next header 6; port 8333 && 49778; tcp flags 0x010/0xfff;};" | ./genrules.py
+echo "flow6 { src 0:4f8:130:71d2::2/128 offset 16; dst 0:0:a000:2001::/64 offset 32; next header 6; port 8333 && 49778; tcp flags 0x010/0xfff;};" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { icmp code != 0; };" | ./genrules.py
+echo "flow6 { icmp code != 0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
@@ -80,40 +80,52 @@ TEST_PKT='#define TEST \
 "\x32\x33\x34\x35\x36\x37"'
 
 # ICMP and VLAN tests
-echo "flow4 { src 10.0.0.0/8; dst 209.250.0.0/16; proto = 1; icmp type 8; icmp code >= 0; length < 100; fragment dont_fragment; };" | ./genrules.py parse_8021q
+echo "flow4 { src 10.0.0.0/8; dst 209.250.0.0/16; proto = 1; icmp type 8; icmp code >= 0; length < 100; fragment dont_fragment; };" | ./genrules.py --ihl=accept-options --8021q=parse-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { icmp type 8; icmp code > 0; };" | ./genrules.py parse_8021q
+echo "flow4 { icmp type 8; icmp code > 0; };" | ./genrules.py --ihl=drop-options --8021q=parse-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { icmp type 9; };" | ./genrules.py parse_8021q
+echo "flow4 { icmp type 9; };" | ./genrules.py --ihl=drop-options --8021q=parse-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { src 10.0.0.0/8; dst 209.250.0.0/16; proto = 1; icmp type 8; icmp code >= 0; length < 100; fragment dont_fragment; };" | ./genrules.py req_8021q=3
+echo "flow4 { src 10.0.0.0/8; dst 209.250.0.0/16; proto = 1; icmp type 8; icmp code >= 0; length < 100; fragment dont_fragment; };" | ./genrules.py --ihl=accept-options --8021q=parse-vlan --require-8021q=3
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { src 0.0.0.0/32; };" | ./genrules.py req_8021q=4
+echo "flow4 { src 0.0.0.0/32; };" | ./genrules.py --ihl=accept-options --8021q=parse-vlan --require-8021q=4
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { src 0.0.0.0/32; };" | ./genrules.py req_8021q=3
+echo "flow4 { src 0.0.0.0/32; };" | ./genrules.py --ihl=drop-options --8021q=parse-vlan --require-8021q=3
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow4 { port 42; };" | ./genrules.py parse_8021q
+echo "flow4 { port 42; };" | ./genrules.py --ihl=drop-options --8021q=parse-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# Test --8021q option handling
+echo "flow4 { port 42; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan --v6frag=drop-frags
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+echo "flow4 { };" | ./genrules.py --ihl=drop-options --8021q=accept-vlan --v6frag=drop-frags
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_PASS" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
 
 TEST_PKT='#define TEST \
 "\x00\x0d\xb9\x50\x11\x4c\x00\x17\x10\x95\xe8\x96\x86\xdd\x60\x0a" \
@@ -126,27 +138,27 @@ TEST_PKT='#define TEST \
 "\x00\x00\x00\x00\x00\x00"'
 
 # ICMPv6 tests
-echo "flow6 { icmp type 129; icmp code 0; };" | ./genrules.py
+echo "flow6 { icmp type 129; icmp code 0; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { icmp code != 0; };" | ./genrules.py
+echo "flow6 { icmp code != 0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { tcp flags 0x0/0x0; };" | ./genrules.py
+echo "flow6 { tcp flags 0x0/0x0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { port 42; };" | ./genrules.py
+echo "flow6 { port 42; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { fragment is_fragment || first_fragment || last_fragment; };" | ./genrules.py
+echo "flow6 { fragment is_fragment || first_fragment || last_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
@@ -164,23 +176,23 @@ TEST_PKT='#define TEST \
 
 # Last frag ICMPv6 tests
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && !first_fragment && last_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && !first_fragment && last_fragment; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment || first_fragment || !last_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment || first_fragment || !last_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
 #TODO Is nextheader frag correct to match on here? Should we support matching on any nexthdr?
-echo "flow6 { next header 44; };" | ./genrules.py
+echo "flow6 { next header 44; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
@@ -270,34 +282,34 @@ TEST_PKT='#define TEST \
 
 # First frag ICMPv6 tests
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && first_fragment && !last_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && first_fragment && !last_fragment; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment || !first_fragment || last_fragment; };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment || !first_fragment || last_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
-echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && first_fragment && !last_fragment; icmp code 0; icmp type 128 };" | ./genrules.py
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment is_fragment && first_fragment && !last_fragment; icmp code 0; icmp type 128 };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
 #TODO Is nextheader frag correct to match on here? Should we support matching on any nexthdr?
-echo "flow6 { next header 44; };" | ./genrules.py
+echo "flow6 { next header 44; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_DROP" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
 #TODO Is nextheader frag correct to match on here? Should we support matching on any nexthdr?
-echo "flow6 { next header 58; };" | ./genrules.py
+echo "flow6 { next header 58; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
