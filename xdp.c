@@ -108,6 +108,9 @@ struct tcphdr {
 // Note rules.h may also define PARSE_IHL
 #include "rules.h"
 
+#define unlikely(a) __builtin_expect(a, 0)
+#define likely(a) __builtin_expect(a, 1)
+
 #ifdef TEST
 // 64 bit version of xdp_md for testing
 struct xdp_md {
@@ -136,18 +139,18 @@ int xdp_drop_prog(struct xdp_md *ctx)
 	unsigned short eth_proto;
 
 	{
-		if ((void*)(size_t)ctx->data + sizeof(struct ethhdr) > data_end)
+		if (unlikely((void*)(size_t)ctx->data + sizeof(struct ethhdr) > data_end))
 			return XDP_DROP;
 		const struct ethhdr *const eth = (void*)(size_t)ctx->data;
 
 #ifdef PARSE_8021Q
-		if (eth->h_proto == BE16(ETH_P_8021Q)) {
-			if ((void*)(size_t)ctx->data + sizeof(struct ethhdr_vlan) > data_end)
+		if (likely(eth->h_proto == BE16(ETH_P_8021Q))) {
+			if (unlikely((void*)(size_t)ctx->data + sizeof(struct ethhdr_vlan) > data_end))
 				return XDP_DROP;
 			const struct ethhdr_vlan *const eth_vlan = (void*)(size_t)ctx->data;
 
 #ifdef REQ_8021Q
-			if ((eth_vlan->tci & BE16(0xfff)) != BE16(REQ_8021Q))
+			if (unlikely((eth_vlan->tci & BE16(0xfff)) != BE16(REQ_8021Q)))
 				return XDP_DROP;
 #endif
 
@@ -176,32 +179,32 @@ int xdp_drop_prog(struct xdp_md *ctx)
 	const struct ip6hdr *ip6 = NULL;
 	const void *l4hdr = NULL;
 	if (eth_proto == BE16(ETH_P_IP)) {
-		if (pktdata + sizeof(struct iphdr) > data_end)
+		if (unlikely(pktdata + sizeof(struct iphdr) > data_end))
 			return XDP_DROP;
 		ip = (struct iphdr*) pktdata;
 
 #ifdef PARSE_IHL
-		if (ip->ihl < 5) return XDP_DROP;
+		if (unlikely(ip->ihl < 5)) return XDP_DROP;
 		l4hdr = pktdata + ip->ihl * 4;
 #else
 		if (ip->ihl != 5) return XDP_DROP;
 		l4hdr = pktdata + 5*4;
 #endif
 		if (ip->protocol == IP_PROTO_TCP) {
-			if (l4hdr + sizeof(struct tcphdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
 				return XDP_DROP;
 			tcp = (struct tcphdr*) l4hdr;
 		} else if (ip->protocol == IP_PROTO_UDP) {
-			if (l4hdr + sizeof(struct udphdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
 				return XDP_DROP;
 			udp = (struct udphdr*) l4hdr;
 		} else if (ip->protocol == IP_PROTO_ICMP) {
-			if (l4hdr + sizeof(struct icmphdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct icmphdr) > data_end))
 				return XDP_DROP;
 			icmp = (struct icmphdr*) l4hdr;
 		}
 	} else if (eth_proto == BE16(ETH_P_IPV6)) {
-		if (pktdata + sizeof(struct ip6hdr) > data_end)
+		if (unlikely(pktdata + sizeof(struct ip6hdr) > data_end))
 			return XDP_DROP;
 		ip6 = (struct ip6hdr*) pktdata;
 
@@ -209,7 +212,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 		uint8_t v6nexthdr;
 		if (ip6->nexthdr == IP6_PROTO_FRAG) {
-			if (l4hdr + sizeof(struct ip6_fraghdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct ip6_fraghdr) > data_end))
 				return XDP_DROP;
 			frag6 = (struct ip6_fraghdr*) l4hdr;
 			l4hdr = l4hdr + sizeof(struct ip6_fraghdr);
@@ -219,15 +222,15 @@ int xdp_drop_prog(struct xdp_md *ctx)
 		}
 
 		if (v6nexthdr == IP_PROTO_TCP) {
-			if (l4hdr + sizeof(struct tcphdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
 				return XDP_DROP;
 			tcp = (struct tcphdr*) l4hdr;
 		} else if (v6nexthdr == IP_PROTO_UDP) {
-			if (l4hdr + sizeof(struct udphdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
 				return XDP_DROP;
 			udp = (struct udphdr*) l4hdr;
 		} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
-			if (l4hdr + sizeof(struct icmp6hdr) > data_end)
+			if (unlikely(l4hdr + sizeof(struct icmp6hdr) > data_end))
 				return XDP_DROP;
 			icmpv6 = (struct icmp6hdr*) l4hdr;
 		}
