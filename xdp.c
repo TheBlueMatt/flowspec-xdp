@@ -18,7 +18,8 @@
 #define IP_PROTO_TCP 6
 #define IP_PROTO_UDP 17
 #define IP_PROTO_ICMP 1
-#define IP_PROTO_ICMPV6 58
+#define IP6_PROTO_ICMPV6 58
+#define IP6_PROTO_FRAG 44
 
 typedef __uint128_t uint128_t;
 
@@ -41,6 +42,15 @@ struct ip6hdr {
 
 	uint128_t	saddr;
 	uint128_t	daddr;
+} __attribute__((packed));
+
+#define IP6_MF 1
+#define IP6_FRAGOFF 0xfff8
+struct ip6_fraghdr {
+	uint8_t nexthdr;
+	uint8_t _reserved;
+	uint16_t frag_off; // BE low 3 bits flags, last is "more frags"
+	uint32_t id;
 } __attribute__((packed));
 
 // Our own ethhdr with optional vlan tags
@@ -161,6 +171,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 	const struct udphdr *udp = NULL;
 	const struct icmphdr *icmp = NULL;
 	const struct icmp6hdr *icmpv6 = NULL;
+	const struct ip6_fraghdr *frag6 = NULL;
 	const struct iphdr *ip = NULL;
 	const struct ip6hdr *ip6 = NULL;
 	const void *l4hdr = NULL;
@@ -195,15 +206,27 @@ int xdp_drop_prog(struct xdp_md *ctx)
 		ip6 = (struct ip6hdr*) pktdata;
 
 		l4hdr = pktdata + 40;
-		if (ip6->nexthdr == IP_PROTO_TCP) {
+
+		uint8_t v6nexthdr;
+		if (ip6->nexthdr == IP6_PROTO_FRAG) {
+			if (l4hdr + sizeof(struct ip6_fraghdr) > data_end)
+				return XDP_DROP;
+			frag6 = (struct ip6_fraghdr*) l4hdr;
+			l4hdr = l4hdr + sizeof(struct ip6_fraghdr);
+			v6nexthdr = frag6->nexthdr;
+		} else {
+			v6nexthdr = ip6->nexthdr;
+		}
+
+		if (v6nexthdr == IP_PROTO_TCP) {
 			if (l4hdr + sizeof(struct tcphdr) > data_end)
 				return XDP_DROP;
 			tcp = (struct tcphdr*) l4hdr;
-		} else if (ip6->nexthdr == IP_PROTO_UDP) {
+		} else if (v6nexthdr == IP_PROTO_UDP) {
 			if (l4hdr + sizeof(struct udphdr) > data_end)
 				return XDP_DROP;
 			udp = (struct udphdr*) l4hdr;
-		} else if (ip6->nexthdr == IP_PROTO_ICMPV6) {
+		} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
 			if (l4hdr + sizeof(struct icmp6hdr) > data_end)
 				return XDP_DROP;
 			icmpv6 = (struct icmp6hdr*) l4hdr;

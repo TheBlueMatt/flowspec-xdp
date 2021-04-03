@@ -13,11 +13,6 @@ if len(sys.argv) > 2 and sys.argv[2].startswith("parse_ihl"):
     PARSE_IHL = True
 else:
     PARSE_IHL = False
-if len(sys.argv) > 3 and sys.argv[3].startswith("parse_exthdr"):
-    PARSE_EXTHDR = True
-else:
-    PARSE_EXTHDR = False
-
 
 class ASTAction(Enum):
     OR = 1,
@@ -106,24 +101,47 @@ def parse_numbers_expr(expr):
         expr = expr[2:]
     return ASTNode(ASTAction.EXPR, NumbersExpr(NumbersAction.EQ, expr))
 
-class FragExpr:
-    def __init__(self, val):
-        if val == "is_fragment":
-            self.rule = "(ip->frag_off & BE16(IP_MF|IP_OFFSET)) != 0"
-        elif val == "first_fragment":
-            self.rule = "(ip->frag_off & BE16(IP_MF)) != 0 && (ip->frag_off & BE16(IP_OFFSET)) == 0"
-        elif val == "dont_fragment":
-            self.rule = "(ip->frag_off & BE16(IP_DF)) != 0"
-        elif val == "last_fragment":
-            self.rule = "(ip->frag_off & BE16(IP_MF)) == 0 && (ip->frag_off & BE16(IP_OFFSET)) != 0"
-        else:
-            assert False
+class FragExpr(Enum):
+    IF = 1
+    FF = 2
+    DF = 3
+    LF = 4
 
-    def write(self, _param, _param2):
-        return self.rule
+    def write(self, ipproto, _param2):
+        if ipproto == 4:
+            if self == FragExpr.IF:
+                return "(ip->frag_off & BE16(IP_MF|IP_OFFSET)) != 0"
+            elif self == FragExpr.FF:
+                return "((ip->frag_off & BE16(IP_MF)) != 0 && (ip->frag_off & BE16(IP_OFFSET)) == 0)"
+            elif self == FragExpr.DF:
+                return "(ip->frag_off & BE16(IP_DF)) != 0"
+            elif self == FragExpr.LF:
+                return "((ip->frag_off & BE16(IP_MF)) == 0 && (ip->frag_off & BE16(IP_OFFSET)) != 0)"
+            else:
+                assert False
+        else:
+            if self == FragExpr.IF:
+                return "frag6 != NULL"
+            elif self == FragExpr.FF:
+                return "(frag6 != NULL && (frag6->frag_off & BE16(IP6_MF)) != 0 && (frag6->frag_off & BE16(IP6_FRAGOFF)) == 0)"
+            elif self == FragExpr.DF:
+                assert False # No such thing in v6
+            elif self == FragExpr.LF:
+                return "(frag6 != NULL && (frag6->frag_off & BE16(IP6_MF)) == 0 && (frag6->frag_off & BE16(IP6_FRAGOFF)) != 0)"
+            else:
+                assert False
 
 def parse_frag_expr(expr):
-    return ASTNode(ASTAction.EXPR, FragExpr(expr))
+    if expr == "is_fragment":
+        return ASTNode(ASTAction.EXPR, FragExpr.IF)
+    elif expr == "first_fragment":
+        return ASTNode(ASTAction.EXPR, FragExpr.FF)
+    elif expr == "dont_fragment":
+        return ASTNode(ASTAction.EXPR, FragExpr.DF)
+    elif expr == "last_fragment":
+        return ASTNode(ASTAction.EXPR, FragExpr.LF)
+    else:
+        assert False
 
 class BitExpr:
     def __init__(self, val):
@@ -163,10 +181,8 @@ def ip_to_rule(proto, inip, ty, offset):
 	break;"""
 
 def fragment_to_rule(ipproto, rules):
-    if ipproto == 6:
-        assert False # XXX: unimplemented
     ast = parse_ast(rules, parse_frag_expr)
-    return "if (!( " + ast.write(()) + " )) break;"
+    return "if (!( " + ast.write(ipproto) + " )) break;"
 
 def len_to_rule(rules):
     ast = parse_ast(rules, parse_numbers_expr)
@@ -178,8 +194,6 @@ def proto_to_rule(ipproto, proto):
     if ipproto == 4:
         return "if (!( " + ast.write("ip->protocol") + " )) break;"
     else:
-        if PARSE_EXTHDR:
-            assert False # XXX: unimplemented
         return "if (!( " + ast.write("ip6->nexthdr") + " )) break;"
 
 def icmp_type_to_rule(proto, ty):
