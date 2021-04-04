@@ -238,6 +238,7 @@ if (!( {ast.write("((((uint32_t)(ip6->flow_lbl[0] & 0xf)) << 2*8) | (((uint32_t)
 with open("rules.h", "w") as out:
     parse = argparse.ArgumentParser()
     parse.add_argument("--ihl", dest="ihl", required=True, choices=["drop-options","accept-options","parse-options"])
+    parse.add_argument("--v6frag", dest="v6frag", required=True, choices=["drop-frags","ignore","parse-frags","ignore-parse-if-rule"])
     parse.add_argument("--8021q", dest="vlan", required=True, choices=["drop-vlan","accept-vlan","parse-vlan"])
     parse.add_argument("--require-8021q", dest="vlan_tag")
     args = parse.parse_args(sys.argv[1:])
@@ -248,6 +249,13 @@ with open("rules.h", "w") as out:
         out.write("#define PARSE_IHL XDP_PASS\n")
     elif args.ihl == "parse-options":
         out.write("#define PARSE_IHL PARSE\n")
+
+    if args.v6frag == "drop-frags":
+        out.write("#define PARSE_V6_FRAG XDP_DROP\n")
+    elif args.v6frag == "ignore":
+        pass
+    elif args.v6frag == "parse-frags":
+        out.write("#define PARSE_V6_FRAG PARSE\n")
 
     if args.vlan == "drop-vlan":
         out.write("#define PARSE_8021Q XDP_DROP\n")
@@ -263,6 +271,7 @@ with open("rules.h", "w") as out:
 
     use_v4 = False
     use_v6 = False
+    use_v6_frags = False
 
     out.write("#define RULES \\\n")
 
@@ -318,6 +327,8 @@ with open("rules.h", "w") as out:
             elif step.strip().startswith("label"):
                 write_rule(flow_label_to_rule(step.strip()[6:]))
             elif step.strip().startswith("fragment"):
+                if proto == 6:
+                    use_v6_frags = True
                 write_rule(fragment_to_rule(proto, step.strip()[9:]))
             elif step.strip() == "":
                 pass
@@ -331,3 +342,6 @@ with open("rules.h", "w") as out:
         out.write("#define NEED_V4_PARSE\n")
     if use_v6:
         out.write("#define NEED_V6_PARSE\n")
+    if args.v6frag == "ignore-parse-if-rule":
+        if use_v6_frags:
+            out.write("#define PARSE_V6_FRAG PARSE\n")

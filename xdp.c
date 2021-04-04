@@ -221,16 +221,21 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 		l4hdr = pktdata + 40;
 
-		uint8_t v6nexthdr;
+		uint8_t v6nexthdr = ip6->nexthdr;
+#ifdef PARSE_V6_FRAG
+#if PARSE_V6_FRAG == PARSE
 		if (ip6->nexthdr == IP6_PROTO_FRAG) {
 			if (unlikely(l4hdr + sizeof(struct ip6_fraghdr) > data_end))
 				return XDP_DROP;
 			frag6 = (struct ip6_fraghdr*) l4hdr;
 			l4hdr = l4hdr + sizeof(struct ip6_fraghdr);
 			v6nexthdr = frag6->nexthdr;
-		} else {
-			v6nexthdr = ip6->nexthdr;
+#else
+		if (unlikely(ip6->nexthdr == IP6_PROTO_FRAG)) {
+			return PARSE_V6_FRAG;
+#endif
 		}
+#endif
 
 		if (v6nexthdr == IP_PROTO_TCP) {
 			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
