@@ -1,16 +1,17 @@
 #!/bin/bash
 function PRINTCNT() {
 if [ "$KEY" != "" ]; then
-	if [ "$KEY" = "0x00000000" ]; then
-		echo "Invalid packet length: $CNT"
-	elif [ "$KEY" = "0x00000001" ]; then
-		echo "Invalid VLAN tag: $CNT"
-	elif [ "$KEY" = "0x00000002" ]; then
-		echo "Invalid/rejected IHL IPv4 field: $CNT"
-	elif [ "$KEY" = "0x00000003" ]; then
-		echo "Rejected IPv6 fragments: $CNT"
+	if [ "$KEY" = "0" ]; then
+		echo -e "$CNT:\tInvalid packet length"
+	elif [ "$KEY" = "1" ]; then
+		echo -e "$CNT:\tInvalid VLAN tag"
+	elif [ "$KEY" = "2" ]; then
+		echo -e "$CNT:\tInvalid/rejected IHL IPv4 field"
+	elif [ "$KEY" = "3" ]; then
+		echo -e "$CNT:\tRejected IPv6 fragments"
 	else
-		echo "$KEY: $CNT"
+		echo -en "$CNT:\t"
+		cat "$(dirname ${BASH_SOURCE[0]})/installed-rules.txt" | head -n $(( $KEY - 3 )) | tail -n1
 	fi
 fi
 CNT=0
@@ -28,7 +29,7 @@ bpftool map show | grep drop_cnt_map | awk '{ print $1 }' | tr -d ':' | while re
 				"Found "*) ;;
 				*)
 					PRINTCNT
-					KEY=$(echo "$LINE" | awk '{ print "0x" $4 $3 $2 $1 }')
+					KEY=$((16#$(echo "$LINE" | awk '{ print $4 $3 $2 $1 }')))
 					;;
 			esac
 		done

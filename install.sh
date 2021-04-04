@@ -18,3 +18,4 @@ ip link set "$1" xdpoffload obj xdp sec xdp_drop || (
 		echo "Failed to install in driver, using generic..." && ip link set "$1" xdpgeneric obj xdp sec xdp_drop
 	)
 )
+echo "$RULES" | grep "^flow. {" > installed-rules.txt
