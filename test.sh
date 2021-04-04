@@ -41,6 +41,43 @@ echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
+# Some match-order tests...
+# (43 && 42) || 4242
+echo "flow4 { port = 43 && 42, 4242; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# (43 && 42) || 4242
+echo "flow4 { port = 43 && 42 || 4242; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# 4242 || (42 && 43)
+echo "flow4 { port = 4242, 42 && 43; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# (4242 && false) || (42 && 4242)
+echo "flow4 { port = 4242 && false, 42 && 4242; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_PASS" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# (4242 && true) || (42 && 43)
+echo "flow4 { port = 4242 && true, 42 && 43; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# 42 || true
+echo "flow4 { port = 42, true; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_DROP" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
 echo "flow4 { icmp code != 0; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan --v6frag=drop-frags
 echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h

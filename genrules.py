@@ -12,13 +12,18 @@ IP_PROTO_TCP = 6
 IP_PROTO_UDP = 17
 
 class ASTAction(Enum):
-    OR = 1,
-    AND = 2,
-    NOT = 3,
-    EXPR = 4
+    OR = 1
+    AND = 2
+    NOT = 3
+    FALSE = 4
+    TRUE = 5
+    EXPR = 6
 class ASTNode:
     def __init__(self, action, left, right=None):
         self.action = action
+        if action == ASTAction.FALSE or action == ASTAction.TRUE:
+            assert left is None and right is None
+            return
         self.left = left
         if right is None:
             assert action == ASTAction.EXPR or action == ASTAction.NOT
@@ -32,23 +37,32 @@ class ASTNode:
             return "(" + self.left.write(expr_param, expr_param2) + ") && (" + self.right.write(expr_param, expr_param2) + ")"
         if self.action == ASTAction.NOT:
             return "!(" + self.left.write(expr_param, expr_param2) + ")"
+        if self.action == ASTAction.FALSE:
+            return "0"
+        if self.action == ASTAction.TRUE:
+            return "1"
         if self.action == ASTAction.EXPR:
             return self.left.write(expr_param, expr_param2)
 
 def parse_ast(expr, parse_expr):
     expr = expr.strip()
 
-    and_split = expr.split("&&", 1)
+    comma_split = expr.split(",", 1)
     or_split = expr.split("||", 1)
-    if len(and_split) > 1 and not "||" in and_split[0]:
-        return ASTNode(ASTAction.AND, parse_ast(and_split[0], parse_expr), parse_ast(and_split[1], parse_expr))
+    if len(comma_split) > 1 and not "||" in comma_split[0]:
+        return ASTNode(ASTAction.OR, parse_ast(comma_split[0], parse_expr), parse_ast(comma_split[1], parse_expr))
     if len(or_split) > 1:
-        assert not "&&" in or_split[0]
+        assert not "," in or_split[0]
         return ASTNode(ASTAction.OR, parse_ast(or_split[0], parse_expr), parse_ast(or_split[1], parse_expr))
 
-    comma_split = expr.split(",", 1)
-    if len(comma_split) > 1:
-        return ASTNode(ASTAction.OR, parse_ast(comma_split[0], parse_expr), parse_ast(comma_split[1], parse_expr))
+    and_split = expr.split("&&", 1)
+    if len(and_split) > 1:
+        return ASTNode(ASTAction.AND, parse_ast(and_split[0], parse_expr), parse_ast(and_split[1], parse_expr))
+
+    if expr.strip() == "true":
+        return ASTNode(ASTAction.TRUE, None)
+    if expr.strip() == "false":
+        return ASTNode(ASTAction.FALSE, None)
 
     if expr.startswith("!"):
         return ASTNode(ASTAction.NOT, parse_ast(expr[1:], parse_expr))
