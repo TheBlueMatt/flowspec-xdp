@@ -159,6 +159,12 @@ struct bpf_map_def SEC("maps") drop_cnt_map = {
 
 SEC("xdp_drop")
 #endif
+
+// It seems (based on drop counts) that data_end points to the last byte, not one-past-the-end.
+// This feels strange, but some documentation suggests > here as well, so we stick with that.
+#define CHECK_LEN(start, struc) \
+	if (unlikely((void*)(start) + sizeof(struct struc) > data_end)) DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+
 int xdp_drop_prog(struct xdp_md *ctx)
 {
 	const void *const data_end = (void *)(size_t)ctx->data_end;
@@ -167,14 +173,12 @@ int xdp_drop_prog(struct xdp_md *ctx)
 	unsigned short eth_proto;
 
 	{
-		if (unlikely((void*)(size_t)ctx->data + sizeof(struct ethhdr) > data_end))
-			DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+		CHECK_LEN((size_t)ctx->data, ethhdr);
 		const struct ethhdr *const eth = (void*)(size_t)ctx->data;
 
 #if PARSE_8021Q == PARSE
 		if (likely(eth->h_proto == BE16(ETH_P_8021Q))) {
-			if (unlikely((void*)(size_t)ctx->data + sizeof(struct ethhdr_vlan) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+			CHECK_LEN((size_t)ctx->data, ethhdr_vlan);
 			const struct ethhdr_vlan *const eth_vlan = (void*)(size_t)ctx->data;
 
 #ifdef REQ_8021Q
@@ -214,8 +218,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 #ifdef NEED_V4_PARSE
 	if (eth_proto == BE16(ETH_P_IP)) {
-		if (unlikely(pktdata + sizeof(struct iphdr) > data_end))
-			DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+		CHECK_LEN(pktdata, iphdr);
 		ip = (struct iphdr*) pktdata;
 
 #if PARSE_IHL == PARSE
@@ -228,16 +231,13 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 		if ((ip->frag_off & BE16(IP_OFFSET)) == 0) {
 			if (ip->protocol == IP_PROTO_TCP) {
-				if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, tcphdr);
 				tcp = (struct tcphdr*) l4hdr;
 			} else if (ip->protocol == IP_PROTO_UDP) {
-				if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, udphdr);
 				udp = (struct udphdr*) l4hdr;
 			} else if (ip->protocol == IP_PROTO_ICMP) {
-				if (unlikely(l4hdr + sizeof(struct icmphdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, icmphdr);
 				icmp = (struct icmphdr*) l4hdr;
 			}
 		}
@@ -245,8 +245,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #endif
 #ifdef NEED_V6_PARSE
 	if (eth_proto == BE16(ETH_P_IPV6)) {
-		if (unlikely(pktdata + sizeof(struct ip6hdr) > data_end))
-			DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+		CHECK_LEN(pktdata, ip6hdr);
 		ip6 = (struct ip6hdr*) pktdata;
 
 		l4hdr = pktdata + 40;
@@ -255,8 +254,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #ifdef PARSE_V6_FRAG
 #if PARSE_V6_FRAG == PARSE
 		if (ip6->nexthdr == IP6_PROTO_FRAG) {
-			if (unlikely(l4hdr + sizeof(struct ip6_fraghdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+			CHECK_LEN(l4hdr, ip6_fraghdr);
 			frag6 = (struct ip6_fraghdr*) l4hdr;
 			l4hdr = l4hdr + sizeof(struct ip6_fraghdr);
 			v6nexthdr = frag6->nexthdr;
@@ -270,16 +268,13 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 		if (frag6 == NULL || (frag6->frag_off & BE16(IP6_FRAGOFF)) == 0) {
 			if (v6nexthdr == IP_PROTO_TCP) {
-				if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, tcphdr);
 				tcp = (struct tcphdr*) l4hdr;
 			} else if (v6nexthdr == IP_PROTO_UDP) {
-				if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, udphdr);
 				udp = (struct udphdr*) l4hdr;
 			} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
-				if (unlikely(l4hdr + sizeof(struct icmp6hdr) > data_end))
-					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				CHECK_LEN(l4hdr, icmp6hdr);
 				icmpv6 = (struct icmp6hdr*) l4hdr;
 			}
 		}
