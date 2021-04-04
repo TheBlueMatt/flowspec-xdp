@@ -10,7 +10,17 @@ bpftool map dump id "$(bpftool map show | grep drop_cnt_map | awk '{ print $1 }'
 		"Found "*) ;;
 		*)
 			if [ "$KEY" != "" ]; then
-				echo "$KEY: $CNT"
+				if [ "$KEY" = "0x00000000" ]; then
+					echo "Invalid packet length: $CNT"
+				elif [ "$KEY" = "0x00000001" ]; then
+					echo "Invalid VLAN tag: $CNT"
+				elif [ "$KEY" = "0x00000002" ]; then
+					echo "Invalid/rejected IHL IPv4 field: $CNT"
+				elif [ "$KEY" = "0x00000003" ]; then
+					echo "Rejected IPv6 fragments: $CNT"
+				else
+					echo "$KEY: $CNT"
+				fi
 			fi
 			KEY=$(echo "$LINE" | awk '{ print "0x" $4 $3 $2 $1 }')
 			CNT=0
