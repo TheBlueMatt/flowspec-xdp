@@ -272,6 +272,7 @@ with open("rules.h", "w") as out:
     use_v4 = False
     use_v6 = False
     use_v6_frags = False
+    rulecnt = 0
 
     out.write("#define RULES \\\n")
 
@@ -334,10 +335,13 @@ with open("rules.h", "w") as out:
                 pass
             else:
                 assert False
-        out.write("\t\treturn XDP_DROP;\\\n")
+        out.write(f"\t\tconst uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};\\\n")
+        out.write("\t\tDO_RETURN(ruleidx, XDP_DROP);\\\n")
         out.write("\t} while(0);\\\n}\\\n")
+        rulecnt += 1
 
     out.write("\n")
+    out.write(f"#define RULECNT {rulecnt}\n")
     if use_v4:
         out.write("#define NEED_V4_PARSE\n")
     if use_v6:
