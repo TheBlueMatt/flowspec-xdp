@@ -232,10 +232,10 @@ def dscp_to_rule(proto, rules):
 def port_to_rule(ty, rules):
     if ty == "port" :
         ast = parse_ast(rules, parse_numbers_expr)
-        return "if (tcp == NULL && udp == NULL) break;\nif (!( " + ast.write("sport", "dport") + " )) break;"
+        return "if (!ports_valid) break;\nif (!( " + ast.write("sport", "dport") + " )) break;"
 
     ast = parse_ast(rules, parse_numbers_expr)
-    return "if (tcp == NULL && udp == NULL) break;\nif (!( " + ast.write(ty) + " )) break;"
+    return "if (!ports_valid) break;\nif (!( " + ast.write(ty) + " )) break;"
 
 def tcp_flags_to_rule(rules):
     ast = parse_ast(rules, parse_bit_expr)
