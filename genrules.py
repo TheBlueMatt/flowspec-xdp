@@ -283,15 +283,10 @@ with open("rules.h", "w") as out:
             assert False
         out.write("#define REQ_8021Q " + args.vlan_tag + "\n")
 
-    use_v4 = False
-    use_v6 = False
+    rules6 = ""
+    rules4 = ""
     use_v6_frags = False
     rulecnt = 0
-
-    out.write("#define RULES \\\n")
-
-    def write_rule(r):
-        out.write("\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n")
 
     for line in sys.stdin.readlines():
         t = line.split("{")
@@ -299,16 +294,19 @@ with open("rules.h", "w") as out:
             continue
         if t[0].strip() == "flow4":
             proto = 4
-            use_v4 = True
-            out.write("if (eth_proto == htons(ETH_P_IP)) { \\\n")
-            out.write("\tdo {\\\n")
+            rules4 += "\tdo {\\\n"
         elif t[0].strip() == "flow6":
             proto = 6
-            use_v6 = True
-            out.write("if (eth_proto == htons(ETH_P_IPV6)) { \\\n")
-            out.write("\tdo {\\\n")
+            rules6 += "\tdo {\\\n"
         else:
             continue
+
+        def write_rule(r):
+            global rules4, rules6
+            if proto == 6:
+                rules6 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+            else:
+                rules4 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
 
         rule = t[1].split("}")[0].strip()
         for step in rule.split(";"):
@@ -349,17 +347,22 @@ with open("rules.h", "w") as out:
                 pass
             else:
                 assert False
-        out.write(f"\t\tconst uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};\\\n")
-        out.write("\t\tDO_RETURN(ruleidx, XDP_DROP);\\\n")
-        out.write("\t} while(0);\\\n}\\\n")
+        write_rule(f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};")
+        write_rule("DO_RETURN(ruleidx, XDP_DROP);")
+        if proto == 6:
+            rules6 += "\t} while(0);\\\n"
+        else:
+            rules4 += "\t} while(0);\\\n"
         rulecnt += 1
 
     out.write("\n")
     out.write(f"#define RULECNT {rulecnt}\n")
-    if use_v4:
+    if rules4 != "":
         out.write("#define NEED_V4_PARSE\n")
-    if use_v6:
+        out.write("#define RULES4 {\\\n" + rules4 + "}\n")
+    if rules6:
         out.write("#define NEED_V6_PARSE\n")
+        out.write("#define RULES6 {\\\n" + rules6 + "}\n")
     if args.v6frag == "ignore-parse-if-rule":
         if use_v6_frags:
             out.write("#define PARSE_V6_FRAG PARSE\n")
