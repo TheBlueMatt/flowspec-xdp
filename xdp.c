@@ -226,18 +226,20 @@ int xdp_drop_prog(struct xdp_md *ctx)
 		l4hdr = pktdata + 5*4;
 #endif
 
-		if (ip->protocol == IP_PROTO_TCP) {
-			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			tcp = (struct tcphdr*) l4hdr;
-		} else if (ip->protocol == IP_PROTO_UDP) {
-			if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			udp = (struct udphdr*) l4hdr;
-		} else if (ip->protocol == IP_PROTO_ICMP) {
-			if (unlikely(l4hdr + sizeof(struct icmphdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			icmp = (struct icmphdr*) l4hdr;
+		if ((ip->frag_off & BE16(IP_OFFSET)) == 0) {
+			if (ip->protocol == IP_PROTO_TCP) {
+				if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				tcp = (struct tcphdr*) l4hdr;
+			} else if (ip->protocol == IP_PROTO_UDP) {
+				if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				udp = (struct udphdr*) l4hdr;
+			} else if (ip->protocol == IP_PROTO_ICMP) {
+				if (unlikely(l4hdr + sizeof(struct icmphdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				icmp = (struct icmphdr*) l4hdr;
+			}
 		}
 	}
 #endif
@@ -264,21 +266,23 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #endif
 		}
 #endif
+		// TODO: Handle more options?
 
-		if (v6nexthdr == IP_PROTO_TCP) {
-			if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			tcp = (struct tcphdr*) l4hdr;
-		} else if (v6nexthdr == IP_PROTO_UDP) {
-			if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			udp = (struct udphdr*) l4hdr;
-		} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
-			if (unlikely(l4hdr + sizeof(struct icmp6hdr) > data_end))
-				DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-			icmpv6 = (struct icmp6hdr*) l4hdr;
+		if (frag6 == NULL || (frag6->frag_off & BE16(IP6_FRAGOFF)) == 0) {
+			if (v6nexthdr == IP_PROTO_TCP) {
+				if (unlikely(l4hdr + sizeof(struct tcphdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				tcp = (struct tcphdr*) l4hdr;
+			} else if (v6nexthdr == IP_PROTO_UDP) {
+				if (unlikely(l4hdr + sizeof(struct udphdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				udp = (struct udphdr*) l4hdr;
+			} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
+				if (unlikely(l4hdr + sizeof(struct icmp6hdr) > data_end))
+					DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+				icmpv6 = (struct icmp6hdr*) l4hdr;
+			}
 		}
-		// TODO: Handle some options?
 	}
 #endif
 

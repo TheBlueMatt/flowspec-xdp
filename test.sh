@@ -228,6 +228,17 @@ echo "$TEST_PKT" >> rules.h
 echo "#define TEST_EXP XDP_PASS" >> rules.h
 clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
 
+echo "flow6 { src 2620:6e:a007:233::1/128; dst 2001:470:0:503::2/128; fragment !is_fragment || first_fragment || !last_fragment; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan --v6frag=parse-frags
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_PASS" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
+# Note on the second fragment we don't know the ICMP header (though < 256 is trivially true)
+echo "flow6 { icmp type < 256; };" | ./genrules.py --ihl=drop-options --8021q=drop-vlan --v6frag=parse-frags
+echo "$TEST_PKT" >> rules.h
+echo "#define TEST_EXP XDP_PASS" >> rules.h
+clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O0 -g xdp.c -o xdp && ./xdp
+
 #TODO Is nextheader frag correct to match on here? Should we support matching on any nexthdr?
 echo "flow6 { next header 44; };" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=parse-frags
 echo "$TEST_PKT" >> rules.h
