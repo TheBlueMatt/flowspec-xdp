@@ -227,7 +227,7 @@ def dscp_to_rule(proto, rules):
     if proto == 4:
         return "if (!( " + ast.write("((ip->tos & 0xfc) >> 2)") + " )) break;"
     else:
-        return "if (!( " + ast.write("((ip6->priority << 4) | ((ip6->flow_lbl[0] & 0xc0) >> 4) >> 2)") + " )) break;"
+        return "if (!( " + ast.write("((ip6->priority << 2) | ((ip6->flow_lbl[0] & 0xc0) >> 6))") + " )) break;"
 
 def port_to_rule(ty, rules):
     if ty == "port" :
