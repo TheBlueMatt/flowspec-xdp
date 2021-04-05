@@ -16,23 +16,30 @@ if [ "$KEY" != "" ]; then
 fi
 CNT=0
 }
-bpftool map show | grep drop_cnt_map | awk '{ print $1 }' | tr -d ':' | while read IF; do
-	bpftool map dump id "$IF" | {
-		KEY=""
-		CNT=0
-		while read LINE; do
-			case "$LINE" in
-				"key:") ;;
-				"value"*)
-					CNT=$(( $CNT + $(echo "$LINE" | awk '{ print "0x" $11 $10 $9 $8 $7 $6 $5 $4 }') ))
-					;;
-				"Found "*) ;;
-				*)
-					PRINTCNT
-					KEY=$((16#$(echo "$LINE" | awk '{ print $4 $3 $2 $1 }')))
-					;;
-			esac
-		done
+MAP_CONTENTS="$(bpftool map show | grep drop_cnt_map | awk '{ print $1 }' | tr -d ':' | while read IF; do
+	bpftool map dump id "$IF"
+done)"
+echo "$MAP_CONTENTS" | {
+	declare -a COUNTS
+	KEY=""
+	while read LINE; do
+		case "$LINE" in
+			"key:") ;;
+			"value"*)
+				COUNTS["$KEY"]=$(( ${COUNTS["$KEY"]} + $(echo "$LINE" | awk '{ print "0x" $11 $10 $9 $8 $7 $6 $5 $4 }') ))
+				;;
+			"Found "*) ;;
+			*)
+				KEY=$((16#$(echo "$LINE" | awk '{ print $4 $3 $2 $1 }')))
+				if [ "$COUNTS["$KEY"]" = "" ]; then
+					COUNTS["$KEY"]=0
+				fi
+				;;
+		esac
+	done
+	for C in "${!COUNTS[@]}"; do
+		KEY=$C
+		CNT="${COUNTS["$KEY"]}"
 		PRINTCNT
-	}
-done
+	done
+}
