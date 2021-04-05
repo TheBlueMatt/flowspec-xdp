@@ -96,6 +96,7 @@ struct tcphdr {
 #elif defined(__BIG_ENDIAN)
 #define BIGEND128(a, b, c, d) ((((uint128_t)a) << 3*32) | (((uint128_t)b) << 2*32) | (((uint128_t)c) << 1*32) | (((uint128_t)d) << 0*32))
 #define HTON128(a) (a)
+#define BE16(a) ((uint16_t)a)
 #else
 #error "Need endian info"
 #endif
@@ -117,6 +118,16 @@ static const uint32_t IHL_DROP = 2;
 static const uint32_t V6FRAG_DROP = 3;
 #define STATIC_RULE_CNT 4
 
+#define DO_RETURN(reason, ret) {\
+		if (ret == XDP_DROP) { INCREMENT_MATCH(reason); } \
+		return ret; \
+	}
+
+// It seems (based on drop counts) that data_end points to the last byte, not one-past-the-end.
+// This feels strange, but some documentation suggests > here as well, so we stick with that.
+#define CHECK_LEN(start, struc) \
+	if (unlikely((void*)(start) + sizeof(struct struc) > data_end)) DO_RETURN(PKT_LEN_DROP, XDP_DROP);
+
 #ifdef TEST
 // 64 bit version of xdp_md for testing
 struct xdp_md {
@@ -133,10 +144,7 @@ static const int XDP_PASS = 0;
 static const int XDP_DROP = 1;
 
 static long drop_cnt_map[RULECNT + STATIC_RULE_CNT];
-#define DO_RETURN(reason, ret) { \
-		if (ret == XDP_DROP) drop_cnt_map[reason] += 1; \
-		return ret; \
-	}
+#define INCREMENT_MATCH(reason) drop_cnt_map[reason] += 1;
 
 #else
 #include <linux/bpf.h>
@@ -148,23 +156,14 @@ struct bpf_map_def SEC("maps") drop_cnt_map = {
 	.value_size = sizeof(long),
 	.max_entries = RULECNT + STATIC_RULE_CNT,
 };
-#define DO_RETURN(reason, ret) {\
-		if (ret == XDP_DROP) { \
-			long *value = bpf_map_lookup_elem(&drop_cnt_map, &reason); \
-			if (value) \
-				*value += 1; \
-		} \
-		return XDP_DROP; \
-	}
+#define INCREMENT_MATCH(reason) { \
+	long *value = bpf_map_lookup_elem(&drop_cnt_map, &reason); \
+	if (value) \
+		*value += 1; \
+}
 
 SEC("xdp_drop")
 #endif
-
-// It seems (based on drop counts) that data_end points to the last byte, not one-past-the-end.
-// This feels strange, but some documentation suggests > here as well, so we stick with that.
-#define CHECK_LEN(start, struc) \
-	if (unlikely((void*)(start) + sizeof(struct struc) > data_end)) DO_RETURN(PKT_LEN_DROP, XDP_DROP);
-
 int xdp_drop_prog(struct xdp_md *ctx)
 {
 	const void *const data_end = (void *)(size_t)ctx->data_end;
@@ -210,7 +209,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #ifdef NEED_V4_PARSE
 	if (eth_proto == BE16(ETH_P_IP)) {
 		CHECK_LEN(pktdata, iphdr);
-		const struct iphdr *ip = (struct iphdr*) pktdata;
+		struct iphdr *ip = (struct iphdr*) pktdata;
 
 #if PARSE_IHL == PARSE
 		if (unlikely(ip->ihl < 5)) DO_RETURN(IHL_DROP, XDP_DROP);
@@ -246,7 +245,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #ifdef NEED_V6_PARSE
 	if (eth_proto == BE16(ETH_P_IPV6)) {
 		CHECK_LEN(pktdata, ip6hdr);
-		const struct ip6hdr *ip6 = (struct ip6hdr*) pktdata;
+		struct ip6hdr *ip6 = (struct ip6hdr*) pktdata;
 
 		l4hdr = pktdata + 40;
 
@@ -298,7 +297,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 #include <assert.h>
 #include <string.h>
 
-const char d[] = TEST;
+char d[] = TEST;
 int main() {
 	struct xdp_md test = {
 		.data = (uint64_t)d,

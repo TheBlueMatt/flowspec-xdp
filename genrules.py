@@ -249,6 +249,7 @@ def flow_label_to_rule(rules):
     return f"""if (ip6 == NULL) break;
 if (!( {ast.write("((((uint32_t)(ip6->flow_lbl[0] & 0xf)) << 2*8) | (((uint32_t)ip6->flow_lbl[1]) << 1*8) | (uint32_t)ip6->flow_lbl[0])")} )) break;"""
 
+
 with open("rules.h", "w") as out:
     parse = argparse.ArgumentParser()
     parse.add_argument("--ihl", dest="ihl", required=True, choices=["drop-options","accept-options","parse-options"])
@@ -288,72 +289,121 @@ with open("rules.h", "w") as out:
     use_v6_frags = False
     rulecnt = 0
 
+    lastrule = None
     for line in sys.stdin.readlines():
-        t = line.split("{")
-        if len(t) != 2:
+        if "{" in line:
+            if lastrule is not None:
+                print("Skipped rule due to lack of understood community tag: " + lastrule)
+            lastrule = line
             continue
-        if t[0].strip() == "flow4":
-            proto = 4
-            rules4 += "\tdo {\\\n"
-        elif t[0].strip() == "flow6":
-            proto = 6
-            rules6 += "\tdo {\\\n"
-        else:
-            continue
+        if "BGP.ext_community: " in line:
+            assert lastrule is not None
 
-        def write_rule(r):
-            global rules4, rules6
-            if proto == 6:
-                rules6 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+            t = lastrule.split("{")
+            if t[0].strip() == "flow4":
+                proto = 4
+                rules4 += "\tdo {\\\n"
+            elif t[0].strip() == "flow6":
+                proto = 6
+                rules6 += "\tdo {\\\n"
             else:
-                rules4 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+                continue
 
-        rule = t[1].split("}")[0].strip()
-        for step in rule.split(";"):
-            if step.strip().startswith("src") or step.strip().startswith("dst"):
-                nets = step.strip()[3:].strip().split(" ")
-                if len(nets) > 1:
-                    assert nets[1] == "offset"
-                    offset = nets[2]
-                else:
-                    offset = None
-                if step.strip().startswith("src"):
-                    write_rule(ip_to_rule(proto, nets[0], "saddr", offset))
-                else:
-                    write_rule(ip_to_rule(proto, nets[0], "daddr", offset))
-            elif step.strip().startswith("proto") and proto == 4:
-                write_rule(proto_to_rule(4, step.strip()[6:]))
-            elif step.strip().startswith("next header") and proto == 6:
-                write_rule(proto_to_rule(6, step.strip()[12:]))
-            elif step.strip().startswith("icmp type"):
-                write_rule(icmp_type_to_rule(proto, step.strip()[10:]))
-            elif step.strip().startswith("icmp code"):
-                write_rule(icmp_code_to_rule(proto, step.strip()[10:]))
-            elif step.strip().startswith("sport") or step.strip().startswith("dport") or step.strip().startswith("port"):
-                write_rule(port_to_rule(step.strip().split(" ")[0], step.strip().split(" ", 1)[1]))
-            elif step.strip().startswith("length"):
-                write_rule(len_to_rule(step.strip()[7:]))
-            elif step.strip().startswith("dscp"):
-                write_rule(dscp_to_rule(proto, step.strip()[5:]))
-            elif step.strip().startswith("tcp flags"):
-                write_rule(tcp_flags_to_rule(step.strip()[10:]))
-            elif step.strip().startswith("label"):
-                write_rule(flow_label_to_rule(step.strip()[6:]))
-            elif step.strip().startswith("fragment"):
+            def write_rule(r):
+                global rules4, rules6
                 if proto == 6:
-                    use_v6_frags = True
-                write_rule(fragment_to_rule(proto, step.strip()[9:]))
-            elif step.strip() == "":
-                pass
+                    rules6 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+                else:
+                    rules4 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+
+            rule = t[1].split("}")[0].strip()
+            for step in rule.split(";"):
+                if step.strip().startswith("src") or step.strip().startswith("dst"):
+                    nets = step.strip()[3:].strip().split(" ")
+                    if len(nets) > 1:
+                        assert nets[1] == "offset"
+                        offset = nets[2]
+                    else:
+                        offset = None
+                    if step.strip().startswith("src"):
+                        write_rule(ip_to_rule(proto, nets[0], "saddr", offset))
+                    else:
+                        write_rule(ip_to_rule(proto, nets[0], "daddr", offset))
+                elif step.strip().startswith("proto") and proto == 4:
+                    write_rule(proto_to_rule(4, step.strip()[6:]))
+                elif step.strip().startswith("next header") and proto == 6:
+                    write_rule(proto_to_rule(6, step.strip()[12:]))
+                elif step.strip().startswith("icmp type"):
+                    write_rule(icmp_type_to_rule(proto, step.strip()[10:]))
+                elif step.strip().startswith("icmp code"):
+                    write_rule(icmp_code_to_rule(proto, step.strip()[10:]))
+                elif step.strip().startswith("sport") or step.strip().startswith("dport") or step.strip().startswith("port"):
+                    write_rule(port_to_rule(step.strip().split(" ")[0], step.strip().split(" ", 1)[1]))
+                elif step.strip().startswith("length"):
+                    write_rule(len_to_rule(step.strip()[7:]))
+                elif step.strip().startswith("dscp"):
+                    write_rule(dscp_to_rule(proto, step.strip()[5:]))
+                elif step.strip().startswith("tcp flags"):
+                    write_rule(tcp_flags_to_rule(step.strip()[10:]))
+                elif step.strip().startswith("label"):
+                    write_rule(flow_label_to_rule(step.strip()[6:]))
+                elif step.strip().startswith("fragment"):
+                    if proto == 6:
+                        use_v6_frags = True
+                    write_rule(fragment_to_rule(proto, step.strip()[9:]))
+                elif step.strip() == "":
+                    pass
+                else:
+                    assert False
+
+            # Now write the match handling!
+            first_action = None
+            last_action = None
+            for community in line.split("("):
+                if not community.startswith("generic, "):
+                    continue
+                blocks = community.split(",")
+                assert len(blocks) == 3
+                if len(blocks[1].strip()) != 10: # Should be 0x12345678
+                    continue
+                ty = blocks[1].strip()[:6]
+                low_bytes = int(blocks[2].strip(") \n"), 16)
+                if ty == "0x8006":
+                    if low_bytes == 0:
+                        first_action = "return XDP_DROP;"
+                    else:
+                        assert False # Not yet supported
+                elif ty == "0x8007":
+                    if low_bytes & 1 == 0:
+                        last_action = "return XDP_PASS;"
+                    if low_bytes & 2 == 2:
+                        write_rule(f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};")
+                        write_rule("INCREMENT_MATCH(ruleidx);")
+                elif ty == "0x8008":
+                    assert False # We do not implement the redirect action
+                elif ty == "0x8009":
+                    if low_bytes & ~0b111111 != 0:
+                        assert False # Invalid DSCP value
+                    if proto == 4:
+                        write_rule("int32_t chk = ~BE16(ip->check) & 0xffff;")
+                        write_rule("uint8_t orig_tos = ip->tos;")
+                        write_rule("ip->tos = (ip->tos & 3) | " + str(low_bytes << 2) + ";")
+                        write_rule("chk = (chk - orig_tos + ip->tos);")
+                        write_rule("if (unlikely(chk < 0)) { chk += 65534; }")
+                        write_rule("ip->check = ~BE16(chk);")
+                    else:
+                        write_rule("ip6->priority = " + str(low_bytes >> 2) + ";")
+                        write_rule("ip6->flow_lbl[0] = (ip6->flow_lbl[0] & 0x3f) | " + str((low_bytes & 3) << 6) + ";")
+            if first_action is not None:
+                write_rule(first_action)
+            if last_action is not None:
+                write_rule(last_action)
+            if proto == 6:
+                rules6 += "\t} while(0);\\\n"
             else:
-                assert False
-        write_rule(f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};")
-        write_rule("DO_RETURN(ruleidx, XDP_DROP);")
-        if proto == 6:
-            rules6 += "\t} while(0);\\\n"
-        else:
-            rules4 += "\t} while(0);\\\n"
-        rulecnt += 1
+                rules4 += "\t} while(0);\\\n"
+            rulecnt += 1
+            lastrule = None
 
     out.write("\n")
     out.write(f"#define RULECNT {rulecnt}\n")
