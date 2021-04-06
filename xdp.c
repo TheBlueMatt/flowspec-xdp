@@ -162,6 +162,20 @@ struct bpf_map_def SEC("maps") drop_cnt_map = {
 		*value += 1; \
 }
 
+#ifdef RATE_CNT
+struct ratelimit {
+	struct bpf_spin_lock lock;
+	uint64_t bucket_secs;
+	uint64_t bucket_count;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, RATE_CNT);
+	__u32 *key;
+	struct ratelimit *value;
+} rate_map SEC(".maps");
+#endif
+
 SEC("xdp_drop")
 #endif
 int xdp_drop_prog(struct xdp_md *ctx)

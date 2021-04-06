@@ -4,6 +4,7 @@ import sys
 import ipaddress
 from enum import Enum
 import argparse
+import math
 
 
 IP_PROTO_ICMP = 1
@@ -288,6 +289,7 @@ with open("rules.h", "w") as out:
     rules4 = ""
     use_v6_frags = False
     rulecnt = 0
+    ratelimitcnt = 0
 
     lastrule = None
     for line in sys.stdin.readlines():
@@ -369,10 +371,38 @@ with open("rules.h", "w") as out:
                 ty = blocks[1].strip()[:6]
                 low_bytes = int(blocks[2].strip(") \n"), 16)
                 if ty == "0x8006":
+                    if first_action is not None:
+                        assert False # Two ratelimit actions?
                     if low_bytes == 0:
                         first_action = "return XDP_DROP;"
                     else:
-                        assert False # Not yet supported
+                        if low_bytes & (1 <<  31) != 0:
+                            assert False # Negative ratelimit?
+                        exp = (low_bytes & (0xff << 23)) >> 23
+                        if exp == 0xff:
+                            assert False # NaN/INF?
+                        if exp <= 127: # < 1
+                            first_action = "return XDP_DROP;"
+                        if exp >= 127 + 63: # The count won't even fit in 64-bits, just accept
+                            first_action = "return XDP_PASS;"
+                        mantissa = low_bytes & ((1 << 23) - 1)
+                        value = 1.0 + mantissa / (2**23)
+                        value *= 2**(exp-127)
+                        first_action = "uint64_t secs = bpf_ktime_get_ns() / 1000000000;\n"
+                        first_action += f"const uint32_t ratelimitidx = {ratelimitcnt};\n"
+                        first_action += "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
+                        first_action += "if (rate) {\n"
+                        first_action += "\tbpf_spin_lock(&rate->lock);\n"
+                        first_action += "\tif (secs != rate->bucket_secs) {\n"
+                        first_action += "\t\trate->bucket_secs = secs;\n"
+                        first_action += "\t\trate->bucket_count = 0;\n"
+                        first_action += "\t}\n"
+                        first_action += f"\tif (rate->bucket_count + (data_end - pktdata) > {math.floor(value)})\n"
+                        first_action += "\t\t{ bpf_spin_unlock(&rate->lock); return XDP_DROP; }\n"
+                        first_action += "\trate->bucket_count += data_end - pktdata;\n"
+                        first_action += "\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += "}\n"
+                        ratelimitcnt += 1
                 elif ty == "0x8007":
                     if low_bytes & 1 == 0:
                         last_action = "return XDP_PASS;"
@@ -407,6 +437,8 @@ with open("rules.h", "w") as out:
 
     out.write("\n")
     out.write(f"#define RULECNT {rulecnt}\n")
+    if ratelimitcnt != 0:
+        out.write(f"#define RATE_CNT {ratelimitcnt}\n")
     if rules4 != "":
         out.write("#define NEED_V4_PARSE\n")
         out.write("#define RULES4 {\\\n" + rules4 + "}\n")
