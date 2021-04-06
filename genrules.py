@@ -388,19 +388,30 @@ with open("rules.h", "w") as out:
                         mantissa = low_bytes & ((1 << 23) - 1)
                         value = 1.0 + mantissa / (2**23)
                         value *= 2**(exp-127)
-                        first_action = "uint64_t secs = bpf_ktime_get_ns() / 1000000000;\n"
+                        # Note that int64_t will overflow after 292 years of uptime
+                        first_action = "int64_t time = bpf_ktime_get_ns();\n"
                         first_action += f"const uint32_t ratelimitidx = {ratelimitcnt};\n"
+                        first_action += "size_t pktlen = data_end - pktdata;\n"
+                        first_action += "uint64_t extra_bytes = 0;\n"
                         first_action += "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
                         first_action += "if (rate) {\n"
                         first_action += "\tbpf_spin_lock(&rate->lock);\n"
-                        first_action += "\tif (secs != rate->bucket_secs) {\n"
-                        first_action += "\t\trate->bucket_secs = secs;\n"
-                        first_action += "\t\trate->bucket_count = 0;\n"
+                        first_action += "\tif (likely(rate->sent_bytes > 0)) {\n"
+                        first_action += "\t\tint64_t diff = time - rate->sent_time;\n"
+                        # Unlikely or not, if the flow is slow, take a perf hit (though with the else if branch it doesn't matter)
+                        first_action += "\t\tif (unlikely(diff > 1000000000))\n"
+                        first_action += "\t\t\trate->sent_bytes = 0;\n"
+                        first_action += "\t\telse if (likely(diff > 0))\n"
+                        first_action += f"\t\t\textra_bytes = ((uint64_t)diff) * {math.floor(value)} / 1000000000;\n"
                         first_action += "\t}\n"
-                        first_action += f"\tif (rate->bucket_count + (data_end - pktdata) > {math.floor(value)})\n"
-                        first_action += "\t\t{ bpf_spin_unlock(&rate->lock); return XDP_DROP; }\n"
-                        first_action += "\trate->bucket_count += data_end - pktdata;\n"
-                        first_action += "\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += "\tif (rate->sent_bytes - ((int64_t)extra_bytes) <= 0) {\n"
+                        first_action += "\t\trate->sent_bytes = data_end - pktdata;\n"
+                        first_action += "\t\trate->sent_time = time;\n"
+                        first_action += "\t\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += "\t} else {\n"
+                        first_action += "\t\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += "\t\treturn XDP_DROP;\n"
+                        first_action += "\t}\n"
                         first_action += "}\n"
                         ratelimitcnt += 1
                 elif ty == "0x8007":

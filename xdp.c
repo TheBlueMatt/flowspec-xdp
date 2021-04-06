@@ -165,8 +165,8 @@ struct bpf_map_def SEC("maps") drop_cnt_map = {
 #ifdef RATE_CNT
 struct ratelimit {
 	struct bpf_spin_lock lock;
-	uint64_t bucket_secs;
-	uint64_t bucket_count;
+	int64_t sent_bytes;
+	int64_t sent_time;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
