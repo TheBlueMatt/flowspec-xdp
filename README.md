@@ -1,9 +1,10 @@
 FlowSpec -> XDP Conversion Utility
 ==================================
 
-This utility allows you to convert flowspec rules (exctracted from a local BIRD instance with birdc)
-to an XDP program. It currently supports the entire flowspec grammar, however does not implement
-community parsing to detect actions due to BIRD limitations.
+This utility allows you to convert flowspec rules (extracted from a local BIRD instance with birdc)
+to an XDP program. It currently supports the entire flowspec match grammar, rate limits, traffic
+action packet match counting (sample bit) and terminal bit, and traffic marking. The redirect
+community is not supported
 
 `install.sh` provides a simple example script which will compile and install a generated XDP program
 from the rules in bird's `flowspec4` and `flowspec6` routing tables. It will drop any packets which
@@ -28,7 +29,11 @@ controlled by parameters to `genrules.py` -
    * ignore IPv6 fragments as above, unless a flow6 rule specifies the "fragment" keyword, in which
      case parse all IPv6 fragments as above for all rules.
 
-Note that if all of the above options are set to their "drop" variant, the parsing can avoid all
-offset calculation, using static offsets for all fields.
+Note that if all of the above options are set to their "drop" or "ignore" variants, the parsing can
+avoid all offset calculation, using static offsets for all fields.
 
 Drop counts are tracked in XDP per-CPU arrays, and can be viewed with `dropcount.sh`.
+
+Note that rate limiting is currently tracked under a single per-rule spinlock, which may be a
+bottleneck for high speed NICs with many RX queues. Adapting this to per-RX-queue/CPU limits would
+be trivial but is left as a future project.
