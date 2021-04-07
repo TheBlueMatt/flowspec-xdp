@@ -1,17 +1,17 @@
 #!/bin/bash
 function PRINTCNT() {
-if [ "$KEY" != "" ]; then
-	if [ "$KEY" = "0" ]; then
-		echo -e "$CNT:\tInvalid packet length"
-	elif [ "$KEY" = "1" ]; then
-		echo -e "$CNT:\tInvalid VLAN tag"
-	elif [ "$KEY" = "2" ]; then
-		echo -e "$CNT:\tInvalid/rejected IHL IPv4 field"
-	elif [ "$KEY" = "3" ]; then
-		echo -e "$CNT:\tRejected IPv6 fragments"
+if [ "$1" != "" ]; then
+	if [ "$1" = "0" ]; then
+		echo -e "$2\t$3\tInvalid packet length"
+	elif [ "$1" = "1" ]; then
+		echo -e "$2\t$3\tInvalid VLAN tag"
+	elif [ "$1" = "2" ]; then
+		echo -e "$2\t$3\tInvalid/rejected IHL IPv4 field"
+	elif [ "$1" = "3" ]; then
+		echo -e "$2\t$3\tRejected IPv6 fragments"
 	else
-		echo -en "$CNT:\t"
-		cat "$(dirname ${BASH_SOURCE[0]})/installed-rules.txt" | head -n $(( $KEY - 3 )) | tail -n1
+		echo -en "$2\t$3\t"
+		cat "$(dirname ${BASH_SOURCE[0]})/installed-rules.txt" | head -n $(( $1 - 3 )) | tail -n1
 	fi
 fi
 CNT=0
@@ -20,26 +20,28 @@ MAP_CONTENTS="$(bpftool map show | grep drop_cnt_map | awk '{ print $1 }' | tr -
 	bpftool map dump id "$IF"
 done)"
 echo "$MAP_CONTENTS" | {
-	declare -a COUNTS
+	declare -a BYTES
+	declare -a PACKETS
 	KEY=""
 	while read LINE; do
 		case "$LINE" in
-			"key:") ;;
-			"value"*)
-				COUNTS["$KEY"]=$(( ${COUNTS["$KEY"]} + $(echo "$LINE" | awk '{ print "0x" $11 $10 $9 $8 $7 $6 $5 $4 }') ))
-				;;
-			"Found "*) ;;
-			*)
-				KEY=$((16#$(echo "$LINE" | awk '{ print $4 $3 $2 $1 }')))
-				if [ "$COUNTS["$KEY"]" = "" ]; then
-					COUNTS["$KEY"]=0
+			*"key"*)
+				KEY=$(echo "$LINE" | awk '{ print $2 }' | tr -d ',')
+				if [ "${BYTES["${KEY}"]}" = "" ]; then
+					BYTES["${KEY}"]=0
+					PACKETS["${KEY}"]=0
 				fi
+				;;
+			*"bytes"*)
+				BYTES["${KEY}"]=$(( ${BYTES["$KEY"]} + $(echo "$LINE" | awk '{ print $2 }' | tr -d ',') ))
+				;;
+			*"packets"*)
+				PACKETS["$KEY"]=$(( ${PACKETS["$KEY"]} + $(echo "$LINE" | awk '{ print $2 }' | tr -d ',') ))
 				;;
 		esac
 	done
-	for C in "${!COUNTS[@]}"; do
-		KEY=$C
-		CNT="${COUNTS["$KEY"]}"
-		PRINTCNT
+	echo -e "pkts\tKBytes\tRule"
+	for C in "${!BYTES[@]}"; do
+		PRINTCNT $C "${PACKETS["$C"]}" "$(( ${BYTES["$C"]} / 1000 ))"
 	done
 }
