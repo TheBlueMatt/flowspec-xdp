@@ -4,7 +4,11 @@ FlowSpec -> XDP Conversion Utility
 This utility allows you to convert flowspec rules (extracted from a local BIRD instance with birdc)
 to an XDP program. It currently supports the entire flowspec match grammar, rate limits, traffic
 action packet match counting (sample bit) and terminal bit, and traffic marking. The redirect
-community is not supported
+community is not supported.
+
+Note that correctly sorting rules is *not* implemented as it requires implementing the flowspec
+wire serialization format and it may better be done inside bird/birdc. Thus, be vary careful using
+the terminal bit in the traffict action community.
 
 `install.sh` provides a simple example script which will compile and install a generated XDP program
 from the rules in bird's `flowspec4` and `flowspec6` routing tables. It will drop any packets which
