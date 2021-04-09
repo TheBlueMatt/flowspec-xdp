@@ -4,7 +4,7 @@ set -e
 RULES="$(birdc show route table flowspec4 primary all)
 $(birdc show route table flowspec6 primary all)"
 
-echo "$RULES" | ./genrules.py --8021q=drop-vlan --v6frag=ignore-parse-if-rule --ihl=drop-options
+echo "$RULES" | ./genrules.py --8021q=drop-vlan --v6frag=ignore-parse-if-rule --ihl=parse-options
 clang -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -O3 -emit-llvm -c xdp.c -o - | llc -O3 -march=bpf -filetype=obj -o xdp
 
 echo "Before unload drop count was:"
