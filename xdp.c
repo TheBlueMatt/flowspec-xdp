@@ -172,7 +172,10 @@ struct {
 #ifdef RATE_CNT
 struct ratelimit {
 	struct bpf_spin_lock lock;
-	int64_t sent_bytes;
+	union {
+		int64_t sent_bytes;
+		int64_t sent_packets;
+	} rate;
 	int64_t sent_time;
 };
 struct {
