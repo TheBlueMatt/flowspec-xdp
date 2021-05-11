@@ -439,7 +439,8 @@ with open("rules.h", "w") as out:
                         write_rule("uint8_t orig_tos = ip->tos;")
                         write_rule("ip->tos = (ip->tos & 3) | " + str(low_bytes << 2) + ";")
                         write_rule("chk = (chk - orig_tos + ip->tos);")
-                        write_rule("if (unlikely(chk < 0)) { chk += 65534; }")
+                        write_rule("if (unlikely(chk > 0xffff)) { chk -= 65535; }")
+                        write_rule("else if (unlikely(chk < 0)) { chk += 65535; }")
                         write_rule("ip->check = ~BE16(chk);")
                     else:
                         write_rule("ip6->priority = " + str(low_bytes >> 2) + ";")
