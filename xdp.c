@@ -186,7 +186,9 @@ struct {
 } rate_map SEC(".maps");
 #endif
 
+#ifndef HAVE_WRAPPER // Set this to call xdp_drop externally
 SEC("xdp_drop")
+#endif
 #endif
 int xdp_drop_prog(struct xdp_md *ctx)
 {
