@@ -45,20 +45,26 @@ class ASTNode:
         if self.action == ASTAction.EXPR:
             return self.left.write(expr_param, expr_param2)
 
-def parse_ast(expr, parse_expr):
+def parse_ast(expr, parse_expr, comma_is_or):
     expr = expr.strip()
 
     comma_split = expr.split(",", 1)
     or_split = expr.split("||", 1)
     if len(comma_split) > 1 and not "||" in comma_split[0]:
-        return ASTNode(ASTAction.OR, parse_ast(comma_split[0], parse_expr), parse_ast(comma_split[1], parse_expr))
+        # Confusingly, BIRD uses `,` as either || or &&, depending on the type
+        # of expression being parsed. Specifically, a `numbers-match` uses `,`
+        # as OR, whereas a `bitmask-match` uses `,` as AND.
+        if comma_is_or:
+            return ASTNode(ASTAction.OR, parse_ast(comma_split[0], parse_expr, comma_is_or), parse_ast(comma_split[1], parse_expr, comma_is_or))
+        else:
+            return ASTNode(ASTAction.AND, parse_ast(comma_split[0], parse_expr, comma_is_or), parse_ast(comma_split[1], parse_expr, comma_is_or))
     if len(or_split) > 1:
         assert not "," in or_split[0]
-        return ASTNode(ASTAction.OR, parse_ast(or_split[0], parse_expr), parse_ast(or_split[1], parse_expr))
+        return ASTNode(ASTAction.OR, parse_ast(or_split[0], parse_expr, comma_is_or), parse_ast(or_split[1], parse_expr, comma_is_or))
 
     and_split = expr.split("&&", 1)
     if len(and_split) > 1:
-        return ASTNode(ASTAction.AND, parse_ast(and_split[0], parse_expr), parse_ast(and_split[1], parse_expr))
+        return ASTNode(ASTAction.AND, parse_ast(and_split[0], parse_expr, comma_is_or), parse_ast(and_split[1], parse_expr, comma_is_or))
 
     if expr.strip() == "true":
         return ASTNode(ASTAction.TRUE, None)
@@ -66,7 +72,7 @@ def parse_ast(expr, parse_expr):
         return ASTNode(ASTAction.FALSE, None)
 
     if expr.startswith("!"):
-        return ASTNode(ASTAction.NOT, parse_ast(expr[1:], parse_expr))
+        return ASTNode(ASTAction.NOT, parse_ast(expr[1:], parse_expr, comma_is_or))
 
     return parse_expr(expr)
 
@@ -193,15 +199,15 @@ def ip_to_rule(proto, inip, ty, offset):
 	break;"""
 
 def fragment_to_rule(ipproto, rules):
-    ast = parse_ast(rules, parse_frag_expr)
+    ast = parse_ast(rules, parse_frag_expr, True)
     return "if (!( " + ast.write(ipproto) + " )) break;"
 
 def len_to_rule(rules):
-    ast = parse_ast(rules, parse_numbers_expr)
+    ast = parse_ast(rules, parse_numbers_expr, True)
     return "if (!( " + ast.write("(data_end - pktdata)") + " )) break;"
  
 def proto_to_rule(ipproto, proto):
-    ast = parse_ast(proto, parse_numbers_expr)
+    ast = parse_ast(proto, parse_numbers_expr, True)
 
     if ipproto == 4:
         return "if (!( " + ast.write("ip->protocol") + " )) break;"
@@ -209,21 +215,21 @@ def proto_to_rule(ipproto, proto):
         return "if (!( " + ast.write("ip6->nexthdr") + " )) break;"
 
 def icmp_type_to_rule(proto, ty):
-    ast = parse_ast(ty, parse_numbers_expr)
+    ast = parse_ast(ty, parse_numbers_expr, True)
     if proto == 4:
         return "if (icmp == NULL) break;\nif (!( " + ast.write("icmp->type") + " )) break;"
     else:
         return "if (icmpv6 == NULL) break;\nif (!( " + ast.write("icmpv6->icmp6_type") + " )) break;"
 
 def icmp_code_to_rule(proto, code):
-    ast = parse_ast(code, parse_numbers_expr)
+    ast = parse_ast(code, parse_numbers_expr, True)
     if proto == 4:
         return "if (icmp == NULL) break;\nif (!( " + ast.write("icmp->code") + " )) break;"
     else:
         return "if (icmpv6 == NULL) break;\nif (!( " + ast.write("icmpv6->icmp6_code") + " )) break;"
 
 def dscp_to_rule(proto, rules):
-    ast = parse_ast(rules, parse_numbers_expr)
+    ast = parse_ast(rules, parse_numbers_expr, True)
 
     if proto == 4:
         return "if (!( " + ast.write("((ip->tos & 0xfc) >> 2)") + " )) break;"
@@ -232,20 +238,20 @@ def dscp_to_rule(proto, rules):
 
 def port_to_rule(ty, rules):
     if ty == "port" :
-        ast = parse_ast(rules, parse_numbers_expr)
+        ast = parse_ast(rules, parse_numbers_expr, True)
         return "if (!ports_valid) break;\nif (!( " + ast.write("sport", "dport") + " )) break;"
 
-    ast = parse_ast(rules, parse_numbers_expr)
+    ast = parse_ast(rules, parse_numbers_expr, True)
     return "if (!ports_valid) break;\nif (!( " + ast.write(ty) + " )) break;"
 
 def tcp_flags_to_rule(rules):
-    ast = parse_ast(rules, parse_bit_expr)
+    ast = parse_ast(rules, parse_bit_expr, False)
 
     return f"""if (tcp == NULL) break;
 if (!( {ast.write("(ntohs(tcp->flags) & 0xfff)")} )) break;"""
 
 def flow_label_to_rule(rules):
-    ast = parse_ast(rules, parse_bit_expr)
+    ast = parse_ast(rules, parse_bit_expr, False)
 
     return f"""if (ip6 == NULL) break;
 if (!( {ast.write("((((uint32_t)(ip6->flow_lbl[0] & 0xf)) << 2*8) | (((uint32_t)ip6->flow_lbl[1]) << 1*8) | (uint32_t)ip6->flow_lbl[0])")} )) break;"""
