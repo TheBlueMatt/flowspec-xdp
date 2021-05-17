@@ -362,6 +362,7 @@ with open("rules.h", "w") as out:
 
             # Now write the match handling!
             first_action = None
+            stats_action = None
             last_action = None
             for community in line.split("("):
                 if not community.startswith("generic, "):
@@ -379,15 +380,15 @@ with open("rules.h", "w") as out:
                         first_action = None
                     exp = (low_bytes & (0xff << 23)) >> 23
                     if low_bytes == 0:
-                        first_action = "return XDP_DROP;"
+                        first_action = "{stats_replace}\nreturn XDP_DROP;"
                     elif low_bytes & (1 <<  31) != 0:
                         # Negative limit, just drop
-                        first_action = "return XDP_DROP;"
+                        first_action = "{stats_replace}\nreturn XDP_DROP;"
                     elif exp == 0xff:
                         # NaN/INF. Just treat as INF and accept
                         first_action = None
                     elif exp <= 127: # < 1
-                        first_action = "return XDP_DROP;"
+                        first_action = "{stats_replace}\nreturn XDP_DROP;"
                     elif exp >= 127 + 63: # The count won't even fit in 64-bits, just accept
                         first_action = None
                     else:
@@ -442,6 +443,7 @@ with open("rules.h", "w") as out:
                         first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t} else {\n"
                         first_action += f"\t\t{spin_unlock}\n"
+                        first_action +=  "\t\t{stats_replace}\n"
                         first_action +=  "\t\treturn XDP_DROP;\n"
                         first_action +=  "\t}\n"
                         if ty == "0x8306" or ty == "0x830c":
@@ -458,8 +460,8 @@ with open("rules.h", "w") as out:
                     if low_bytes & 1 == 0:
                         last_action = "return XDP_PASS;"
                     if low_bytes & 2 == 2:
-                        write_rule(f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};")
-                        write_rule("INCREMENT_MATCH(ruleidx);")
+                        stats_action = f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};\n"
+                        stats_action += "INCREMENT_MATCH(ruleidx);"
                 elif ty == "0x8008":
                     assert False # We do not implement the redirect action
                 elif ty == "0x8009":
@@ -477,7 +479,9 @@ with open("rules.h", "w") as out:
                         write_rule("ip6->priority = " + str(low_bytes >> 2) + ";")
                         write_rule("ip6->flow_lbl[0] = (ip6->flow_lbl[0] & 0x3f) | " + str((low_bytes & 3) << 6) + ";")
             if first_action is not None:
-                write_rule(first_action)
+                write_rule(first_action.replace("{stats_replace}", stats_action))
+            if stats_action is not None and (first_action is None or "{stats_replace}" not in first_action):
+                write_rule(stats_action)
             if last_action is not None:
                 write_rule(last_action)
             if proto == 6:
