@@ -77,9 +77,12 @@ struct tcphdr {
 // Note that all operations on uint128s *stay* in Network byte order!
 
 #if defined(__LITTLE_ENDIAN)
-#define BIGEND32(v) ((v >> 3*8) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) | (v << 3*8) & 0xff000000)
+#define BIGEND32(v) (((((uint32_t)(v)) >> 3*8) & 0xff) | \
+                     ((((uint32_t)(v)) >> 1*8) & 0xff00) | \
+                     ((((uint32_t)(v)) << 1*8) & 0xff0000) | \
+                     ((((uint32_t)(v)) << 3*8) & 0xff000000))
 #elif defined(__BIG_ENDIAN)
-#define BIGEND32(v) (v)
+#define BIGEND32(v) ((uint32_t)(v))
 #else
 #error "Need endian info"
 #endif
@@ -92,11 +95,11 @@ struct tcphdr {
 		(((uint128_t)BIGEND32(a)) << 0*32))
 #define HTON128(a) BIGEND128(a >> 3*32, a >> 2*32, a >> 1*32, a>> 0*32)
 // Yes, somehow macro'ing this changes LLVM's view of htons...
-#define BE16(a) ((((uint16_t)(a & 0xff00)) >> 8) | (((uint16_t)(a & 0xff)) << 8))
+#define BE16(a) (((((uint16_t)a) & 0xff00) >> 8) | ((((uint16_t)a) & 0xff) << 8))
 #elif defined(__BIG_ENDIAN)
-#define BIGEND128(a, b, c, d) ((((uint128_t)a) << 3*32) | (((uint128_t)b) << 2*32) | (((uint128_t)c) << 1*32) | (((uint128_t)d) << 0*32))
-#define HTON128(a) (a)
-#define BE16(a) ((uint16_t)a)
+#define BIGEND128(a, b, c, d) ((((uint128_t)(a)) << 3*32) | (((uint128_t)(b)) << 2*32) | (((uint128_t)(c)) << 1*32) | (((uint128_t)(d)) << 0*32))
+#define HTON128(a) ((uint128_t)(a))
+#define BE16(a) ((uint16_t)(a))
 #else
 #error "Need endian info"
 #endif
