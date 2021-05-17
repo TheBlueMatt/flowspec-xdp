@@ -290,6 +290,8 @@ with open("rules.h", "w") as out:
     use_v6_frags = False
     rulecnt = 0
     ratelimitcnt = 0
+    v4persrcratelimitcnt = 0
+    v6persrcratelimitcnt = 0
 
     lastrule = None
     for line in sys.stdin.readlines():
@@ -369,8 +371,9 @@ with open("rules.h", "w") as out:
                 if len(blocks[1].strip()) != 10: # Should be 0x12345678
                     continue
                 ty = blocks[1].strip()[:6]
+                high_byte = int(blocks[1].strip()[8:], 16)
                 low_bytes = int(blocks[2].strip(") \n"), 16)
-                if ty == "0x8006" or ty == "0x800c":
+                if ty == "0x8006" or ty == "0x800c" or ty == "0x8306" or ty == "0x830c":
                     if first_action is not None:
                         # Two ratelimit actions, just drop the old one. RFC 8955 says we can.
                         first_action = None
@@ -391,17 +394,37 @@ with open("rules.h", "w") as out:
                         mantissa = low_bytes & ((1 << 23) - 1)
                         value = 1.0 + mantissa / (2**23)
                         value *= 2**(exp-127)
-                        if ty == "0x8006":
+                        if ty == "0x8006" or ty == "0x8306":
                             accessor = "rate->rate.sent_bytes"
                         else:
                             accessor = "rate->rate.sent_packets"
                         # Note that int64_t will overflow after 292 years of uptime
                         first_action = "int64_t time = bpf_ktime_get_ns();\n"
-                        first_action += f"const uint32_t ratelimitidx = {ratelimitcnt};\n"
                         first_action +=  "uint64_t allowed_since_last = 0;\n"
-                        first_action +=  "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
+                        if ty == "0x8006" or ty == "0x800c":
+                            spin_lock = "bpf_spin_lock(&rate->lock);"
+                            spin_unlock = "bpf_spin_unlock(&rate->lock);"
+                            first_action += f"const uint32_t ratelimitidx = {ratelimitcnt};\n"
+                            first_action += "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
+                            ratelimitcnt += 1
+                        else:
+                            spin_lock = "/* No locking as we're per-CPU */"
+                            spin_unlock = "/* No locking as we're per-CPU */"
+                            if proto == 4:
+                                if high_byte > 32:
+                                    continue
+                                first_action += f"const uint32_t srcip = ip->saddr & MASK4({high_byte});\n"
+                                first_action += f"void *rate_map = &v4_src_rate_{v4persrcratelimitcnt};\n"
+                                v4persrcratelimitcnt += 1
+                            else:
+                                if high_byte > 128:
+                                    continue
+                                first_action += f"const uint128_t srcip = ip6->saddr & MASK6({high_byte});\n"
+                                first_action += f"void *rate_map = &v6_src_rate_{v6persrcratelimitcnt};\n"
+                                v6persrcratelimitcnt += 1
+                            first_action += f"struct percpu_ratelimit *rate = bpf_map_lookup_elem(rate_map, &srcip);\n"
                         first_action +=  "if (rate) {\n"
-                        first_action +=  "\tbpf_spin_lock(&rate->lock);\n"
+                        first_action += f"\t{spin_lock}\n"
                         first_action += f"\tif (likely({accessor} > 0))" + " {\n"
                         first_action +=  "\t\tint64_t diff = time - rate->sent_time;\n"
                         # Unlikely or not, if the flow is slow, take a perf hit (though with the else if branch it doesn't matter)
@@ -411,18 +434,26 @@ with open("rules.h", "w") as out:
                         first_action += f"\t\t\tallowed_since_last = ((uint64_t)diff) * {math.floor(value)} / 1000000000;\n"
                         first_action +=  "\t}\n"
                         first_action += f"\tif ({accessor} - ((int64_t)allowed_since_last) <= 0)" + " {\n"
-                        if ty == "0x8006":
+                        if ty == "0x8006" or ty == "0x8306":
                             first_action += f"\t\t{accessor} = data_end - pktdata;\n"
                         else:
                             first_action += f"\t\t{accessor} = 1;\n"
                         first_action +=  "\t\trate->sent_time = time;\n"
-                        first_action +=  "\t\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t} else {\n"
-                        first_action +=  "\t\tbpf_spin_unlock(&rate->lock);\n"
+                        first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t\treturn XDP_DROP;\n"
                         first_action +=  "\t}\n"
+                        if ty == "0x8306" or ty == "0x830c":
+                            first_action +=  "} else {\n"
+                            first_action +=  "\tstruct percpu_ratelimit new_rate = { .sent_time = time, };\n"
+                            first_action +=  "\trate = &new_rate;\n"
+                            if ty == "0x8006" or ty == "0x8306":
+                                first_action += f"\t\t{accessor} = data_end - pktdata;\n"
+                            else:
+                                first_action += f"\t\t{accessor} = 1;\n"
+                            first_action +=  "\tbpf_map_update_elem(rate_map, &srcip, rate, BPF_ANY);\n"
                         first_action +=  "}\n"
-                        ratelimitcnt += 1
                 elif ty == "0x8007":
                     if low_bytes & 1 == 0:
                         last_action = "return XDP_PASS;"
@@ -460,6 +491,10 @@ with open("rules.h", "w") as out:
     out.write(f"#define RULECNT {rulecnt}\n")
     if ratelimitcnt != 0:
         out.write(f"#define RATE_CNT {ratelimitcnt}\n")
+    if v4persrcratelimitcnt != 0:
+        out.write(f"#define V4_SRC_RATE_CNT {v4persrcratelimitcnt}\n")
+    if v6persrcratelimitcnt != 0:
+        out.write(f"#define V6_SRC_RATE_CNT {v6persrcratelimitcnt}\n")
     if rules4 != "":
         out.write("#define NEED_V4_PARSE\n")
         out.write("#define RULES4 {\\\n" + rules4 + "}\n")
