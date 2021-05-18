@@ -15,8 +15,8 @@ provide rate-limiting on a per-source basis. When the upper two bytes in an exte
 0x8306 (rate in bytes) or 0x830c (rate in packets), we rate limit the same as 0x8006 or 0x800c
 except that the rate limit is applied per source address. The encoding mirrors the non-per-source
 encoding in that the last 4 octets are the floating-point rate limit. Instead of a 2 octet
-AS/ignored value, the third octet is reserved and the fourth octet is a prefix length mask, which
-is applied to the source IP before rate-limiting.
+AS/ignored value, the third octet is the maximum number of source IPs tracked (plus one, times 1024)
+and the fourth octet is a prefix length mask, which is applied to the source IP before rate-limiting.
 
 `install.sh` provides a simple example script which will compile and install a generated XDP program
 from the rules in bird's `flowspec4` and `flowspec6` routing tables. It will drop any packets which

@@ -7,8 +7,6 @@
 #include <linux/icmpv6.h>
 #include <arpa/inet.h>
 
-#include "repeat_macro.h"
-
 #define NULL (void*)0
 
 /* IP flags. */
@@ -151,7 +149,7 @@ static const int XDP_DROP = 1;
 static long drop_cnt_map[RULECNT + STATIC_RULE_CNT];
 #define INCREMENT_MATCH(reason) { drop_cnt_map[reason] += 1; drop_cnt_map[reason] += data_end - pktdata; }
 
-#else
+#else /* TEST */
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 
@@ -189,13 +187,12 @@ struct {
 	__u32 *key;
 	struct ratelimit *value;
 } rate_map SEC(".maps");
-#endif
+#endif /* RATE_CNT */
 
 // For per-source rate limiting, we have to use per-CPU hash maps as Linux
 // doesn't support spinlocks inside of a LRU_HASH (see if block in
 // map_check_btf as of Linux 5.10).
 // This isn't exactly accurate, but at least its faster.
-#if defined(V4_SRC_RATE_CNT) || defined(V6_SRC_RATE_CNT)
 struct percpu_ratelimit {
 	union {
 		int64_t sent_bytes;
@@ -203,36 +200,29 @@ struct percpu_ratelimit {
 	} rate;
 	int64_t sent_time;
 };
-#endif
 
-#define SRC_HASH_ENTRY_MAX 8192
-#define CONCAT(a, b) a##b
-#define DEFINE_SRC_RATE_MAPS(CNT, NAME) CONCAT(DEFINE_MAP, CNT)(NAME)
+#define V6_SRC_RATE_DEFINE(n, limit) \
+struct { \
+	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
+	__uint(max_entries, limit); \
+	uint128_t *key; \
+	struct percpu_ratelimit *value; \
+} v6_src_rate_##n SEC(".maps");
 
-#ifdef V4_SRC_RATE_CNT
-#define V4_SRC_MAPS DEFINE_SRC_RATE_MAPS(V4_SRC_RATE_CNT, v4_src_rate)
-struct {
-	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);
-	__uint(max_entries, SRC_HASH_ENTRY_MAX);
-	__u32 *key;
-	struct percpu_ratelimit *value;
-} V4_SRC_MAPS;
-#endif
+#define V4_SRC_RATE_DEFINE(n, limit) \
+struct { \
+	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
+	__uint(max_entries, limit); \
+	__u32 *key; \
+	struct percpu_ratelimit *value; \
+} v4_src_rate_##n SEC(".maps");
 
-#ifdef V6_SRC_RATE_CNT
-#define V6_SRC_MAPS DEFINE_SRC_RATE_MAPS(V6_SRC_RATE_CNT, v6_src_rate)
-struct {
-	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);
-	__uint(max_entries, SRC_HASH_ENTRY_MAX);
-	uint128_t *key;
-	struct percpu_ratelimit *value;
-} V6_SRC_MAPS;
-#endif
+#include "maps.h"
 
 #ifndef HAVE_WRAPPER // Set this to call xdp_drop externally
 SEC("xdp_drop")
-#endif
-#endif
+#endif /* HAVE_WRAPPER */
+#endif /* not TEST */
 int xdp_drop_prog(struct xdp_md *ctx)
 {
 	const void *const data_end = (void *)(size_t)ctx->data_end;
