@@ -199,7 +199,7 @@ def ip_to_rule(proto, inip, ty, offset):
 	break;"""
 
 def fragment_to_rule(ipproto, rules):
-    ast = parse_ast(rules, parse_frag_expr, True)
+    ast = parse_ast(rules, parse_frag_expr, False)
     return "if (!( " + ast.write(ipproto) + " )) break;"
 
 def len_to_rule(rules):
