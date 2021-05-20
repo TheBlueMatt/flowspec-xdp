@@ -265,7 +265,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 	const void *l4hdr = NULL;
 	const struct tcphdr *tcp = NULL;
 	uint8_t ports_valid = 0;
-	uint16_t sport, dport; // Host Endian! Only valid with tcp || udp
+	uint16_t sport = 0, dport = 0; // Host Endian! Only valid with tcp || udp
 
 #ifdef NEED_V4_PARSE
 	if (eth_proto == BE16(ETH_P_IP)) {
