@@ -204,6 +204,7 @@ struct percpu_ratelimit {
 #define V6_SRC_RATE_DEFINE(n, limit) \
 struct { \
 	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
+	__uint(map_flags, BPF_F_NO_COMMON_LRU); \
 	__uint(max_entries, limit); \
 	uint128_t *key; \
 	struct percpu_ratelimit *value; \
@@ -212,6 +213,7 @@ struct { \
 #define V4_SRC_RATE_DEFINE(n, limit) \
 struct { \
 	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
+	__uint(map_flags, BPF_F_NO_COMMON_LRU); \
 	__uint(max_entries, limit); \
 	__u32 *key; \
 	struct percpu_ratelimit *value; \
