@@ -264,8 +264,7 @@ int xdp_drop_prog(struct xdp_md *ctx)
 
 	const void *l4hdr = NULL;
 	const struct tcphdr *tcp = NULL;
-	uint8_t ports_valid = 0;
-	uint16_t sport = 0, dport = 0; // Host Endian! Only valid with tcp || udp
+	int32_t sport = -1, dport = -1; // Host Endian! Only valid with tcp || udp
 
 #ifdef NEED_V4_PARSE
 	if (eth_proto == BE16(ETH_P_IP)) {
@@ -287,13 +286,11 @@ int xdp_drop_prog(struct xdp_md *ctx)
 				tcp = (struct tcphdr*) l4hdr;
 				sport = BE16(tcp->source);
 				dport = BE16(tcp->dest);
-				ports_valid = 1;
 			} else if (ip->protocol == IP_PROTO_UDP) {
 				CHECK_LEN(l4hdr, udphdr);
 				const struct udphdr *udp = (struct udphdr*) l4hdr;
 				sport = BE16(udp->source);
 				dport = BE16(udp->dest);
-				ports_valid = 1;
 			} else if (ip->protocol == IP_PROTO_ICMP) {
 				CHECK_LEN(l4hdr, icmphdr);
 				icmp = (struct icmphdr*) l4hdr;
@@ -334,13 +331,11 @@ int xdp_drop_prog(struct xdp_md *ctx)
 				tcp = (struct tcphdr*) l4hdr;
 				sport = BE16(tcp->source);
 				dport = BE16(tcp->dest);
-				ports_valid = 1;
 			} else if (v6nexthdr == IP_PROTO_UDP) {
 				CHECK_LEN(l4hdr, udphdr);
 				const struct udphdr *udp = (struct udphdr*) l4hdr;
 				sport = BE16(udp->source);
 				dport = BE16(udp->dest);
-				ports_valid = 1;
 			} else if (v6nexthdr == IP6_PROTO_ICMPV6) {
 				CHECK_LEN(l4hdr, icmp6hdr);
 				icmpv6 = (struct icmp6hdr*) l4hdr;
