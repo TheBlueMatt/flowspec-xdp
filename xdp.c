@@ -175,10 +175,7 @@ struct {
 #ifdef RATE_CNT
 struct ratelimit {
 	struct bpf_spin_lock lock;
-	union {
-		int64_t sent_bytes;
-		int64_t sent_packets;
-	} rate;
+	int64_t sent_rate;
 	int64_t sent_time;
 };
 struct {
@@ -194,10 +191,7 @@ struct {
 // map_check_btf as of Linux 5.10).
 // This isn't exactly accurate, but at least its faster.
 struct percpu_ratelimit {
-	union {
-		int64_t sent_bytes;
-		int64_t sent_packets;
-	} rate;
+	int64_t sent_rate;
 	int64_t sent_time;
 };
 

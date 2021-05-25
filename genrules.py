@@ -402,10 +402,6 @@ with open("rules.h", "w") as out:
                         mantissa = low_bytes & ((1 << 23) - 1)
                         value = 1.0 + mantissa / (2**23)
                         value *= 2**(exp-127)
-                        if ty == "0x8006" or ty == "0x8306":
-                            accessor = "rate->rate.sent_bytes"
-                        else:
-                            accessor = "rate->rate.sent_packets"
                         # Note that int64_t will overflow after 292 years of uptime
                         first_action = "int64_t time = bpf_ktime_get_ns();\n"
                         first_action +=  "uint64_t allowed_since_last = 0;\n"
@@ -433,19 +429,19 @@ with open("rules.h", "w") as out:
                             first_action += f"struct percpu_ratelimit *rate = bpf_map_lookup_elem(rate_map, &srcip);\n"
                         first_action +=  "if (rate) {\n"
                         first_action += f"\t{spin_lock}\n"
-                        first_action += f"\tif (likely({accessor} > 0))" + " {\n"
+                        first_action +=  "\tif (likely(rate->sent_rate > 0))" + " {\n"
                         first_action +=  "\t\tint64_t diff = time - rate->sent_time;\n"
                         # Unlikely or not, if the flow is slow, take a perf hit (though with the else if branch it doesn't matter)
                         first_action +=  "\t\tif (unlikely(diff > 1000000000))\n"
-                        first_action += f"\t\t\t{accessor} = 0;\n"
+                        first_action +=  "\t\t\trate->sent_rate = 0;\n"
                         first_action +=  "\t\telse if (likely(diff > 0))\n"
                         first_action += f"\t\t\tallowed_since_last = ((uint64_t)diff) * {math.floor(value)} / 1000000000;\n"
                         first_action +=  "\t}\n"
-                        first_action += f"\tif ({accessor} - ((int64_t)allowed_since_last) <= 0)" + " {\n"
+                        first_action +=  "\tif (rate->sent_rate - ((int64_t)allowed_since_last) <= 0)" + " {\n"
                         if ty == "0x8006" or ty == "0x8306":
-                            first_action += f"\t\t{accessor} = data_end - pktdata;\n"
+                            first_action += "\t\trate->sent_rate = data_end - pktdata;\n"
                         else:
-                            first_action += f"\t\t{accessor} = 1;\n"
+                            first_action += "\t\trate->sent_rate = 1;\n"
                         first_action +=  "\t\trate->sent_time = time;\n"
                         first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t} else {\n"
@@ -458,9 +454,9 @@ with open("rules.h", "w") as out:
                             first_action +=  "\tstruct percpu_ratelimit new_rate = { .sent_time = time, };\n"
                             first_action +=  "\trate = &new_rate;\n"
                             if ty == "0x8006" or ty == "0x8306":
-                                first_action += f"\t\t{accessor} = data_end - pktdata;\n"
+                                first_action += f"\t\trate->sent_rate = data_end - pktdata;\n"
                             else:
-                                first_action += f"\t\t{accessor} = 1;\n"
+                                first_action += f"\t\trate->sent_rate = 1;\n"
                             first_action +=  "\tbpf_map_update_elem(rate_map, &srcip, rate, BPF_ANY);\n"
                         first_action +=  "}\n"
                 elif ty == "0x8007":
