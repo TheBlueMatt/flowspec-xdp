@@ -7,7 +7,7 @@
 #include <linux/icmpv6.h>
 #include <arpa/inet.h>
 
-#define NULL (void*)0
+#include "siphash.h"
 
 /* IP flags. */
 #define IP_CE		0x8000		/* Flag: "Congestion"		*/
