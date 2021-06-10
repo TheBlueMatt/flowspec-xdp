@@ -419,17 +419,17 @@ with open("rules.h", "w") as out:
                                     continue
                                 first_action += f"const uint32_t srcip = ip->saddr & MASK4({mid_byte});\n"
                                 first_action += f"void *rate_map = &v4_src_rate_{len(v4persrcratelimits)};\n"
-                                first_action += f"struct persrc_rate4_ptr rate_ptr = get_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 1024});\n"
+                                first_action += f"struct persrc_rate4_ptr rate_ptr = get_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096});\n"
                                 first_action += f"struct persrc_rate4_entry *rate = rate_ptr.rate;\n"
-                                v4persrcratelimits.append((high_byte + 1) * 1024)
+                                v4persrcratelimits.append((high_byte + 1) * 4096)
                             else:
                                 if mid_byte > 128:
                                     continue
                                 first_action += f"const uint128_t srcip = ip6->saddr & MASK6({mid_byte});\n"
                                 first_action += f"void *rate_map = &v6_src_rate_{len(v6persrcratelimits)};\n"
-                                first_action += f"struct persrc_rate6_ptr rate_ptr = get_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 1024});\n"
+                                first_action += f"struct persrc_rate6_ptr rate_ptr = get_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096});\n"
                                 first_action += f"struct persrc_rate6_entry *rate = rate_ptr.rate;\n"
-                                v6persrcratelimits.append((high_byte + 1) * 1024)
+                                v6persrcratelimits.append((high_byte + 1) * 4096)
                         first_action +=  "if (rate) {\n"
                         first_action += f"\t{spin_lock}\n"
                         first_action +=  "\tif (likely(rate->sent_rate > 0))" + " {\n"

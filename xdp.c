@@ -196,7 +196,7 @@ struct {
 // Then we build an array of MAX_ENTRIES/2**SRC_HASH_MAX_PARALLELISM_POW entries,
 // which are split into buckets of size SRC_HASH_BUCKET_COUNT. An entry can appear
 // in any of the SRC_HASH_BUCKET_COUNT buckets at it's hash value.
-#define SRC_HASH_MAX_PARALLELISM_POW 7
+#define SRC_HASH_MAX_PARALLELISM_POW 9
 #define SRC_HASH_MAX_PARALLELISM (1 << SRC_HASH_MAX_PARALLELISM_POW)
 #define SRC_HASH_BUCKET_COUNT_POW 3
 #define SRC_HASH_BUCKET_COUNT (1 << SRC_HASH_BUCKET_COUNT_POW)
