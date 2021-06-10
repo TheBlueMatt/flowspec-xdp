@@ -177,11 +177,18 @@ struct {
 	} \
 }
 
+// Rate limits are done in a static-sized leaky bucket with a decimal counter
+// Bucket size is always exactly (1 << RATE_BUCKET_INTEGER_BITS)
+#define RATE_BUCKET_DECIMAL_BITS 8
+#define RATE_BUCKET_INTEGER_BITS 4
+
+#define RATE_BUCKET_BITS (RATE_BUCKET_DECIMAL_BITS + RATE_BUCKET_INTEGER_BITS)
+#define RATE_TIME_MASK ((1ULL << (64 - RATE_BUCKET_BITS)) - 1)
+
 #ifdef RATE_CNT
 struct ratelimit {
 	struct bpf_spin_lock lock;
-	int64_t sent_rate;
-	int64_t sent_time;
+	uint64_t sent_time;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
@@ -210,8 +217,7 @@ struct {
 
 #define CREATE_PERSRC_LOOKUP(IPV, IP_TYPE) \
 struct persrc_rate##IPV##_entry { \
-	int64_t sent_rate; \
-	int64_t sent_time; \
+	uint64_t sent_time; \
 	IP_TYPE srcip; \
 }; \
  \
@@ -241,20 +247,19 @@ static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYP
 	bpf_spin_lock(&buckets->lock); \
  \
 	int min_sent_idx = 0; \
-	int64_t min_sent_time = INT64_MAX; \
+	uint64_t min_sent_time = UINT64_MAX; \
 	for (int i = 0; i < SRC_HASH_BUCKET_COUNT; i++) { \
 		if (first_bucket[i].srcip == key) { \
 			res.rate = &first_bucket[i]; \
 			res.lock = &buckets->lock; \
 			return res; \
-		} else if (min_sent_time > first_bucket[i].sent_time) { \
-			min_sent_time = first_bucket[i].sent_time; \
+		} else if (min_sent_time > (first_bucket[i].sent_time & RATE_TIME_MASK)) { \
+			min_sent_time = first_bucket[i].sent_time & RATE_TIME_MASK; \
 			min_sent_idx = i; \
 		} \
 	} \
 	res.rate = &first_bucket[min_sent_idx]; \
 	res.rate->srcip = key; \
-	res.rate->sent_rate = 0; \
 	res.rate->sent_time = 0; \
 	res.lock = &buckets->lock; \
 	return res; \

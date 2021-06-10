@@ -395,17 +395,17 @@ with open("rules.h", "w") as out:
                     elif exp == 0xff:
                         # NaN/INF. Just treat as INF and accept
                         first_action = None
-                    elif exp <= 127: # < 1
+                    elif exp < 127: # < 1
                         first_action = "{stats_replace}\nreturn XDP_DROP;"
-                    elif exp >= 127 + 63: # The count won't even fit in 64-bits, just accept
+                    elif exp >= 127 + 29: # We can't handle the precision required with ns this high
                         first_action = None
                     else:
                         mantissa = low_bytes & ((1 << 23) - 1)
                         value = 1.0 + mantissa / (2**23)
                         value *= 2**(exp-127)
-                        # Note that int64_t will overflow after 292 years of uptime
-                        first_action = "int64_t time = bpf_ktime_get_ns();\n"
-                        first_action +=  "uint64_t allowed_since_last = 0;\n"
+
+                        first_action =   "int64_t time = bpf_ktime_get_ns() & RATE_TIME_MASK;\n"
+                        first_action += f"int64_t per_pkt_ns = (1000000000LL << RATE_BUCKET_INTEGER_BITS) / {math.floor(value)};\n"
                         if ty == "0x8006" or ty == "0x800c":
                             spin_lock = "bpf_spin_lock(&rate->lock);"
                             spin_unlock = "bpf_spin_unlock(&rate->lock);"
@@ -437,27 +437,30 @@ with open("rules.h", "w") as out:
                                 first_action += f"struct persrc_rate6_ptr rate_ptr = get_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096});\n"
                                 first_action += f"struct persrc_rate6_entry *rate = rate_ptr.rate;\n"
                                 v6persrcratelimits.append((high_byte + 1) * 4096)
+                        if ty == "0x8006" or ty == "0x8306":
+                            first_action += "uint64_t amt = data_end - pktdata;\n"
+                        else:
+                            first_action += "uint64_t amt = 1;\n"
                         first_action +=  "if (rate) {\n"
                         first_action += f"\t{spin_lock}\n"
-                        first_action +=  "\tif (likely(rate->sent_rate > 0))" + " {\n"
-                        first_action +=  "\t\tint64_t diff = time - rate->sent_time;\n"
-                        # Unlikely or not, if the flow is slow, take a perf hit (though with the else if branch it doesn't matter)
-                        first_action +=  "\t\tif (unlikely(diff > 1000000000))\n"
-                        first_action +=  "\t\t\trate->sent_rate = 0;\n"
-                        first_action +=  "\t\telse if (likely(diff > 0))\n"
-                        first_action += f"\t\t\tallowed_since_last = ((uint64_t)diff) * {math.floor(value)} / 1000000000;\n"
-                        first_action +=  "\t}\n"
-                        first_action +=  "\tif (rate->sent_rate - ((int64_t)allowed_since_last) <= 0)" + " {\n"
-                        if ty == "0x8006" or ty == "0x8306":
-                            first_action += "\t\trate->sent_rate = data_end - pktdata;\n"
-                        else:
-                            first_action += "\t\trate->sent_rate = 1;\n"
-                        first_action +=  "\t\trate->sent_time = time;\n"
-                        first_action += f"\t\t{spin_unlock}\n"
+                        first_action +=  "\tint64_t bucket_pkts = (rate->sent_time & (~RATE_TIME_MASK)) >> (64 - RATE_BUCKET_BITS);\n"
+                        # We mask the top 12 bits, so date overflows every 52 days, handled below
+                        first_action +=  "\tint64_t time_diff = time - ((int64_t)(rate->sent_time & RATE_TIME_MASK));\n"
+                        first_action +=  "\tif (unlikely(time_diff < -1000000000 || time_diff > 16000000000)) {\n"
+                        first_action +=  "\t\tbucket_pkts = 0;\n"
                         first_action +=  "\t} else {\n"
+                        first_action +=  "\t\tif (unlikely(time_diff < 0)) { time_diff = 0; }\n"
+                        first_action += f"\t\tint64_t pkts_since_last = (time_diff << RATE_BUCKET_BITS) * amt / per_pkt_ns;\n"
+                        first_action +=  "\t\tbucket_pkts -= pkts_since_last;\n"
+                        first_action +=  "\t}\n"
+                        first_action +=  "\tif (bucket_pkts >= (((1 << RATE_BUCKET_INTEGER_BITS) - 1) << RATE_BUCKET_DECIMAL_BITS)) {\n"
                         first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t\t{stats_replace}\n"
                         first_action +=  "\t\treturn XDP_DROP;\n"
+                        first_action +=  "\t} else {\n"
+                        first_action +=  "\t\tif (unlikely(bucket_pkts < 0)) bucket_pkts = 0;\n"
+                        first_action += f"\t\trate->sent_time = time | ((bucket_pkts + (1 << RATE_BUCKET_DECIMAL_BITS)) << (64 - RATE_BUCKET_BITS));\n"
+                        first_action += f"\t\t{spin_unlock}\n"
                         first_action +=  "\t}\n"
                         first_action +=  "}\n"
                 elif ty == "0x8007":
