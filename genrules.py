@@ -297,6 +297,7 @@ with open("rules.h", "w") as out:
     rulecnt = 0
     ratelimitcnt = 0
     v4persrcratelimits = []
+    v5persrcratelimits = []
     v6persrcratelimits = []
 
     lastrule = None
@@ -422,6 +423,12 @@ with open("rules.h", "w") as out:
                                 first_action += f"struct persrc_rate4_ptr rate_ptr = get_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096});\n"
                                 first_action += f"struct persrc_rate4_entry *rate = rate_ptr.rate;\n"
                                 v4persrcratelimits.append((high_byte + 1) * 4096)
+                            elif mid_byte <= 64:
+                                first_action += f"const uint64_t srcip = BE128BEHIGH64(ip6->saddr & MASK6({mid_byte}));\n"
+                                first_action += f"void *rate_map = &v5_src_rate_{len(v5persrcratelimits)};\n"
+                                first_action += f"struct persrc_rate5_ptr rate_ptr = get_v5_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096});\n"
+                                first_action += f"struct persrc_rate5_entry *rate = rate_ptr.rate;\n"
+                                v5persrcratelimits.append((high_byte + 1) * 4096)
                             else:
                                 if mid_byte > 128:
                                     continue
@@ -504,5 +511,7 @@ with open("rules.h", "w") as out:
     with open("maps.h", "w") as out:
         for idx, limit in enumerate(v4persrcratelimits):
             out.write(f"SRC_RATE_DEFINE(4, {idx}, {limit})\n")
+        for idx, limit in enumerate(v5persrcratelimits):
+            out.write(f"SRC_RATE_DEFINE(5, {idx}, {limit})\n")
         for idx, limit in enumerate(v6persrcratelimits):
             out.write(f"SRC_RATE_DEFINE(6, {idx}, {limit})\n")

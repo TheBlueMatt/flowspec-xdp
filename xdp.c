@@ -96,10 +96,15 @@ struct tcphdr {
 #define HTON128(a) BIGEND128(a >> 3*32, a >> 2*32, a >> 1*32, a>> 0*32)
 // Yes, somehow macro'ing this changes LLVM's view of htons...
 #define BE16(a) (((((uint16_t)a) & 0xff00) >> 8) | ((((uint16_t)a) & 0xff) << 8))
+#define BE128BEHIGH64(val) ((uint64_t)((uint128_t)(val)))
+
 #elif defined(__BIG_ENDIAN)
+
 #define BIGEND128(a, b, c, d) ((((uint128_t)(a)) << 3*32) | (((uint128_t)(b)) << 2*32) | (((uint128_t)(c)) << 1*32) | (((uint128_t)(d)) << 0*32))
 #define HTON128(a) ((uint128_t)(a))
 #define BE16(a) ((uint16_t)(a))
+#define BE128BEHIGH64(val) ((uint64_t)(((uint128_t)(val)) >> 64))
+
 #else
 #error "Need endian info"
 #endif
@@ -256,6 +261,7 @@ static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYP
 }
 
 CREATE_PERSRC_LOOKUP(6, uint128_t)
+CREATE_PERSRC_LOOKUP(5, uint64_t) // IPv6 matching no more than a /64
 CREATE_PERSRC_LOOKUP(4, uint32_t)
 
 #define SRC_RATE_DEFINE(IPV, n, limit) \
