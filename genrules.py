@@ -412,21 +412,24 @@ with open("rules.h", "w") as out:
                             first_action += "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
                             ratelimitcnt += 1
                         else:
-                            spin_lock = "/* No locking as we're per-CPU */"
-                            spin_unlock = "/* No locking as we're per-CPU */"
+                            spin_lock = "/* No locking as we're locked in get_v*_persrc_ratelimit */"
+                            spin_unlock = "bpf_spin_unlock(rate_ptr.lock);"
                             if proto == 4:
                                 if mid_byte > 32:
                                     continue
                                 first_action += f"const uint32_t srcip = ip->saddr & MASK4({mid_byte});\n"
                                 first_action += f"void *rate_map = &v4_src_rate_{len(v4persrcratelimits)};\n"
+                                first_action += f"struct persrc_rate4_ptr rate_ptr = get_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 1024});\n"
+                                first_action += f"struct persrc_rate4_entry *rate = rate_ptr.rate;\n"
                                 v4persrcratelimits.append((high_byte + 1) * 1024)
                             else:
                                 if mid_byte > 128:
                                     continue
                                 first_action += f"const uint128_t srcip = ip6->saddr & MASK6({mid_byte});\n"
                                 first_action += f"void *rate_map = &v6_src_rate_{len(v6persrcratelimits)};\n"
+                                first_action += f"struct persrc_rate6_ptr rate_ptr = get_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 1024});\n"
+                                first_action += f"struct persrc_rate6_entry *rate = rate_ptr.rate;\n"
                                 v6persrcratelimits.append((high_byte + 1) * 1024)
-                            first_action += f"struct percpu_ratelimit *rate = bpf_map_lookup_elem(rate_map, &srcip);\n"
                         first_action +=  "if (rate) {\n"
                         first_action += f"\t{spin_lock}\n"
                         first_action +=  "\tif (likely(rate->sent_rate > 0))" + " {\n"
@@ -449,15 +452,6 @@ with open("rules.h", "w") as out:
                         first_action +=  "\t\t{stats_replace}\n"
                         first_action +=  "\t\treturn XDP_DROP;\n"
                         first_action +=  "\t}\n"
-                        if ty == "0x8306" or ty == "0x830c":
-                            first_action +=  "} else {\n"
-                            first_action +=  "\tstruct percpu_ratelimit new_rate = { .sent_time = time, };\n"
-                            first_action +=  "\trate = &new_rate;\n"
-                            if ty == "0x8006" or ty == "0x8306":
-                                first_action += f"\t\trate->sent_rate = data_end - pktdata;\n"
-                            else:
-                                first_action += f"\t\trate->sent_rate = 1;\n"
-                            first_action +=  "\tbpf_map_update_elem(rate_map, &srcip, rate, BPF_ANY);\n"
                         first_action +=  "}\n"
                 elif ty == "0x8007":
                     if low_bytes & 1 == 0:
@@ -509,6 +503,6 @@ with open("rules.h", "w") as out:
             out.write("#define PARSE_V6_FRAG PARSE\n")
     with open("maps.h", "w") as out:
         for idx, limit in enumerate(v4persrcratelimits):
-            out.write(f"V4_SRC_RATE_DEFINE({idx}, {limit})\n")
+            out.write(f"SRC_RATE_DEFINE(4, {idx}, {limit})\n")
         for idx, limit in enumerate(v6persrcratelimits):
-            out.write(f"V6_SRC_RATE_DEFINE({idx}, {limit})\n")
+            out.write(f"SRC_RATE_DEFINE(6, {idx}, {limit})\n")

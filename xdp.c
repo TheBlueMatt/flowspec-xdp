@@ -186,32 +186,89 @@ struct {
 } rate_map SEC(".maps");
 #endif /* RATE_CNT */
 
-// For per-source rate limiting, we have to use per-CPU hash maps as Linux
-// doesn't support spinlocks inside of a LRU_HASH (see if block in
-// map_check_btf as of Linux 5.10).
-// This isn't exactly accurate, but at least its faster.
-struct percpu_ratelimit {
-	int64_t sent_rate;
-	int64_t sent_time;
-};
+// We implement a rather naive hashtable here instead of using a BPF map because
+// (a) the BPF map hashtables are similarly naive (no rehashing, etc),
+// (b) the BPF map LRU hashtables don't support locking.
+//
+// We first separate into a few top-level buckets with per-bucket locks, limiting
+// us to 2^SRC_HASH_MAX_PARALLELISM parallel accessors.
+//
+// Then we build an array of MAX_ENTRIES/2**SRC_HASH_MAX_PARALLELISM_POW entries,
+// which are split into buckets of size SRC_HASH_BUCKET_COUNT. An entry can appear
+// in any of the SRC_HASH_BUCKET_COUNT buckets at it's hash value.
+#define SRC_HASH_MAX_PARALLELISM_POW 7
+#define SRC_HASH_MAX_PARALLELISM (1 << SRC_HASH_MAX_PARALLELISM_POW)
+#define SRC_HASH_BUCKET_COUNT_POW 3
+#define SRC_HASH_BUCKET_COUNT (1 << SRC_HASH_BUCKET_COUNT_POW)
 
-#define V6_SRC_RATE_DEFINE(n, limit) \
-struct { \
-	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
-	__uint(map_flags, BPF_F_NO_COMMON_LRU); \
-	__uint(max_entries, limit); \
-	uint128_t *key; \
-	struct percpu_ratelimit *value; \
-} v6_src_rate_##n SEC(".maps");
+#include "rand.h"
 
-#define V4_SRC_RATE_DEFINE(n, limit) \
+#define CREATE_PERSRC_LOOKUP(IPV, IP_TYPE) \
+struct persrc_rate##IPV##_entry { \
+	int64_t sent_rate; \
+	int64_t sent_time; \
+	IP_TYPE srcip; \
+}; \
+ \
+struct persrc_rate##IPV##_bucket { \
+	struct bpf_spin_lock lock; \
+	struct persrc_rate##IPV##_entry entries[]; \
+}; \
+ \
+struct persrc_rate##IPV##_ptr { \
+	struct persrc_rate##IPV##_entry *rate; \
+	struct bpf_spin_lock *lock; \
+}; \
+ \
+__attribute__((always_inline)) \
+static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit) { \
+	struct persrc_rate##IPV##_ptr res = { .rate = NULL, .lock = NULL }; \
+	uint64_t hash = siphash(&key, sizeof(key), COMPILE_TIME_RAND); \
+ \
+	const uint32_t map_key = hash % SRC_HASH_MAX_PARALLELISM; \
+	struct persrc_rate##IPV##_bucket *buckets = bpf_map_lookup_elem(map, &map_key); \
+	if (!buckets) return res; \
+ \
+	hash >>= SRC_HASH_MAX_PARALLELISM_POW; \
+	map_limit >>= SRC_HASH_MAX_PARALLELISM_POW; \
+ \
+	struct persrc_rate##IPV##_entry *first_bucket = &buckets->entries[(hash % map_limit) & (~(SRC_HASH_BUCKET_COUNT - 1))]; \
+	bpf_spin_lock(&buckets->lock); \
+ \
+	int min_sent_idx = 0; \
+	int64_t min_sent_time = INT64_MAX; \
+	for (int i = 0; i < SRC_HASH_BUCKET_COUNT; i++) { \
+		if (first_bucket[i].srcip == key) { \
+			res.rate = &first_bucket[i]; \
+			res.lock = &buckets->lock; \
+			return res; \
+		} else if (min_sent_time > first_bucket[i].sent_time) { \
+			min_sent_time = first_bucket[i].sent_time; \
+			min_sent_idx = i; \
+		} \
+	} \
+	res.rate = &first_bucket[min_sent_idx]; \
+	res.rate->srcip = key; \
+	res.rate->sent_rate = 0; \
+	res.rate->sent_time = 0; \
+	res.lock = &buckets->lock; \
+	return res; \
+}
+
+CREATE_PERSRC_LOOKUP(6, uint128_t)
+CREATE_PERSRC_LOOKUP(4, uint32_t)
+
+#define SRC_RATE_DEFINE(IPV, n, limit) \
+struct persrc_rate##IPV##_bucket_##n { \
+	struct bpf_spin_lock lock; \
+	struct persrc_rate##IPV##_entry entries[limit / SRC_HASH_MAX_PARALLELISM]; \
+}; \
 struct { \
-	__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH); \
-	__uint(map_flags, BPF_F_NO_COMMON_LRU); \
-	__uint(max_entries, limit); \
-	__u32 *key; \
-	struct percpu_ratelimit *value; \
-} v4_src_rate_##n SEC(".maps");
+	__uint(type, BPF_MAP_TYPE_ARRAY); \
+	__uint(max_entries, SRC_HASH_MAX_PARALLELISM); \
+	uint32_t *key; \
+	struct persrc_rate##IPV##_bucket_##n *value; \
+} v##IPV##_src_rate_##n SEC(".maps");
 
 #include "maps.h"
 
