@@ -213,9 +213,17 @@ struct {
 // Then we build an array of MAX_ENTRIES/2**SRC_HASH_MAX_PARALLELISM_POW entries,
 // which are split into buckets of size SRC_HASH_BUCKET_COUNT. An entry can appear
 // in any of the SRC_HASH_BUCKET_COUNT buckets at it's hash value.
-#define SRC_HASH_MAX_PARALLELISM_POW 9
+//
+// Because we use buckets of size 16, see collision_prob.py, the number of
+// elements we can hold with only a 1% probability of overflowing a bucket is:
+//
+// 128K-entry hash table (2MiB): ~33K sources
+// 256K-entry hash table (4MiB): ~63K sources
+// 512K-entry hash table (8MiB): ~119K sources
+// 1M-entry hash table (16MiB): ~227K sources
+#define SRC_HASH_MAX_PARALLELISM_POW 8
 #define SRC_HASH_MAX_PARALLELISM (1 << SRC_HASH_MAX_PARALLELISM_POW)
-#define SRC_HASH_BUCKET_COUNT_POW 3
+#define SRC_HASH_BUCKET_COUNT_POW 4
 #define SRC_HASH_BUCKET_COUNT (1 << SRC_HASH_BUCKET_COUNT_POW)
 
 #include "rand.h"

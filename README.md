@@ -18,6 +18,9 @@ encoding in that the last 4 octets are the floating-point rate limit. Instead of
 AS/ignored value, the third octet is the maximum number of source IPs tracked (plus one, times 4096)
 and the fourth octet is a prefix length mask, which is applied to the source IP before rate-limiting.
 
+See `collision_prob.py` for collision probabilities in the hash table to estimate the size you
+should use.
+
 `install.sh` provides a simple example script which will compile and install a generated XDP program
 from the rules in bird's `flowspec4` and `flowspec6` routing tables. It will drop any packets which
 match any flowspec filter.
