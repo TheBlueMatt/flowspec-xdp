@@ -185,6 +185,11 @@ struct {
 #define RATE_BUCKET_BITS (RATE_BUCKET_DECIMAL_BITS + RATE_BUCKET_INTEGER_BITS)
 #define RATE_TIME_MASK ((1ULL << (64 - RATE_BUCKET_BITS)) - 1)
 
+// Time going backwards 10ms+ or forward 32sec+ implies we should consider it
+// an overflow, or at least stale enough that we should reset the entry.
+#define RATE_MIN_TIME_OFFSET -10000000LL
+#define RATE_MAX_TIME_OFFSET 32000000000LL
+
 #ifdef RATE_CNT
 struct ratelimit {
 	struct bpf_spin_lock lock;
@@ -232,7 +237,7 @@ struct persrc_rate##IPV##_ptr { \
 }; \
  \
 __attribute__((always_inline)) \
-static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit) { \
+static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit, int64_t cur_time_masked) { \
 	struct persrc_rate##IPV##_ptr res = { .rate = NULL, .lock = NULL }; \
 	uint64_t hash = siphash(&key, sizeof(key), COMPILE_TIME_RAND); \
  \
@@ -253,7 +258,13 @@ static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYP
 			res.rate = &first_bucket[i]; \
 			res.lock = &buckets->lock; \
 			return res; \
-		} else if (min_sent_time > (first_bucket[i].sent_time & RATE_TIME_MASK)) { \
+		} \
+		int64_t time_offset = ((int64_t)cur_time_masked) - (first_bucket[i].sent_time & RATE_TIME_MASK); \
+		if (time_offset < RATE_MIN_TIME_OFFSET || time_offset > RATE_MAX_TIME_OFFSET) { \
+			min_sent_idx = i; \
+			break; \
+		} \
+		if ((first_bucket[i].sent_time & RATE_TIME_MASK) < min_sent_time) { \
 			min_sent_time = first_bucket[i].sent_time & RATE_TIME_MASK; \
 			min_sent_idx = i; \
 		} \
