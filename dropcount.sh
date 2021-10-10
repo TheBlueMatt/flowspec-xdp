@@ -17,7 +17,7 @@ fi
 CNT=0
 }
 MAP_CONTENTS="$(bpftool map show | grep drop_cnt_map | awk '{ print $1 }' | tr -d ':' | while read IF; do
-	bpftool map dump id "$IF"
+	bpftool map dump id "$IF" | grep "bytes\|packets\|key" | grep -v '\(bytes\|packets\)": 0\(,\)*$'
 done)"
 echo "$MAP_CONTENTS" | {
 	declare -a BYTES
