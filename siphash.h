@@ -140,3 +140,15 @@ static inline uint64_t siphash(const void *in, const size_t inlen, const uint8_t
     b = v0 ^ v1 ^ v2 ^ v3;
     return b;
 }
+
+#include "rand.h"
+static uint64_t siphash_uint64_t(const uint64_t in) {
+	return siphash(&in, sizeof(uint64_t), COMPILE_TIME_RAND);
+}
+__attribute__((always_inline))
+static inline uint64_t siphash_uint32_t(const uint32_t in) {
+	return siphash_uint64_t(in);
+}
+static uint64_t siphash_uint128_t(const __uint128_t in) {
+	return siphash(&in, sizeof(__uint128_t), COMPILE_TIME_RAND);
+}

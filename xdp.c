@@ -226,8 +226,6 @@ struct {
 #define SRC_HASH_BUCKET_COUNT_POW 4
 #define SRC_HASH_BUCKET_COUNT (1 << SRC_HASH_BUCKET_COUNT_POW)
 
-#include "rand.h"
-
 #define CREATE_PERSRC_LOOKUP(IPV, IP_TYPE) \
 struct persrc_rate##IPV##_entry { \
 	uint64_t sent_time; \
@@ -247,7 +245,7 @@ struct persrc_rate##IPV##_ptr { \
 __attribute__((always_inline)) \
 static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit, int64_t cur_time_masked) { \
 	struct persrc_rate##IPV##_ptr res = { .rate = NULL, .lock = NULL }; \
-	uint64_t hash = siphash(&key, sizeof(key), COMPILE_TIME_RAND); \
+	uint64_t hash = siphash_##IP_TYPE(key); \
  \
 	const uint32_t map_key = hash % SRC_HASH_MAX_PARALLELISM; \
 	struct persrc_rate##IPV##_bucket *buckets = bpf_map_lookup_elem(map, &map_key); \

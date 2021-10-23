@@ -7,12 +7,12 @@ COMMUNITY_DROP="
 	BGP.ext_community: (generic, 0x80060000, 0x0) (generic, 0x80070000, 0xf) (generic, 0x80090000, 0x3f)"
 
 DO_TEST() {
-	clang -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-tautological-constant-out-of-range-compare -Wno-unused-function -Wno-visibility -O3 -emit-llvm -c xdp.c -o xdp.bc
+	clang -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-unused-function -Wno-tautological-constant-out-of-range-compare -Wno-unused-function -Wno-visibility -O3 -emit-llvm -c xdp.c -o xdp.bc
 	cat xdp.bc | llc -O3 -march=bpf -filetype=obj -o xdp
 
 	echo "$TEST_PKT" >> rules.h
 	echo "#define TEST_EXP $1" >> rules.h
-	clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-tautological-constant-out-of-range-compare -O0 -g xdp.c -o xdp && ./xdp
+	clang -std=c99 -fsanitize=address -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-unused-function -Wno-tautological-constant-out-of-range-compare -O0 -g xdp.c -o xdp && ./xdp
 }
 
 TEST_PKT='#define TEST \
