@@ -151,7 +151,7 @@ struct xdp_md {
 static const int XDP_PASS = 0;
 static const int XDP_DROP = 1;
 
-static long drop_cnt_map[RULECNT + STATIC_RULE_CNT];
+static long drop_cnt_map[STATS_RULECNT + STATIC_RULE_CNT];
 #define INCREMENT_MATCH(reason) { drop_cnt_map[reason] += 1; drop_cnt_map[reason] += data_end - pktdata; }
 
 #else /* TEST */
@@ -164,7 +164,7 @@ struct match_counter {
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-	__uint(max_entries, RULECNT + STATIC_RULE_CNT);
+	__uint(max_entries, STATS_RULECNT + STATIC_RULE_CNT);
 	__u32 *key;
 	struct match_counter *value;
 } drop_cnt_map SEC(".maps");

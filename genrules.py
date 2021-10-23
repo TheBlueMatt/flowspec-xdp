@@ -294,7 +294,7 @@ with open("rules.h", "w") as out:
     rules6 = ""
     rules4 = ""
     use_v6_frags = False
-    rulecnt = 0
+    stats_rulecnt = 0
     ratelimitcnt = 0
     v4persrcratelimits = []
     v5persrcratelimits = []
@@ -369,7 +369,7 @@ with open("rules.h", "w") as out:
 
             # Now write the match handling!
             first_action = None
-            stats_action = None
+            stats_action = ""
             last_action = None
             for community in line.split("("):
                 if not community.startswith("generic, "):
@@ -467,7 +467,7 @@ with open("rules.h", "w") as out:
                     if low_bytes & 1 == 0:
                         last_action = "return XDP_PASS;"
                     if low_bytes & 2 == 2:
-                        stats_action = f"const uint32_t ruleidx = STATIC_RULE_CNT + {rulecnt};\n"
+                        stats_action = f"const uint32_t ruleidx = STATIC_RULE_CNT + {stats_rulecnt};\n"
                         stats_action += "INCREMENT_MATCH(ruleidx);"
                 elif ty == "0x8008":
                     assert False # We do not implement the redirect action
@@ -487,7 +487,7 @@ with open("rules.h", "w") as out:
                         write_rule("ip6->flow_lbl[0] = (ip6->flow_lbl[0] & 0x3f) | " + str((low_bytes & 3) << 6) + ";")
             if first_action is not None:
                 write_rule(first_action.replace("{stats_replace}", stats_action))
-            if stats_action is not None and (first_action is None or "{stats_replace}" not in first_action):
+            if stats_action != "" and (first_action is None or "{stats_replace}" not in first_action):
                 write_rule(stats_action)
             if last_action is not None:
                 write_rule(last_action)
@@ -495,11 +495,13 @@ with open("rules.h", "w") as out:
                 rules6 += "\t} while(0);\\\n"
             else:
                 rules4 += "\t} while(0);\\\n"
-            rulecnt += 1
+            if stats_action != "":
+                print(rule)
+                stats_rulecnt += 1
             lastrule = None
 
     out.write("\n")
-    out.write(f"#define RULECNT {rulecnt}\n")
+    out.write(f"#define STATS_RULECNT {stats_rulecnt}\n")
     if ratelimitcnt != 0:
         out.write(f"#define RATE_CNT {ratelimitcnt}\n")
     if rules4 != "":
