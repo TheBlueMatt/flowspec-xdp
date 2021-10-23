@@ -29,12 +29,10 @@ fi
 echo "Before unload drop count was:"
 ./dropcount.sh || echo "Not loaded"
 
-ip link set "$1" xdp off
-ip link set "$1" xdpgeneric off
 # Note that sometimes the automated fallback does not work properly so we have to || generic here
-ip link set "$1" xdpoffload obj xdp sec $XDP_SECTION || (
-	echo "Failed to install in NIC, testing in driver..." && ip link set "$1" xdpdrv obj xdp sec $XDP_SECTION || (
-		echo "Failed to install in driver, using generic..." && ip link set "$1" xdpgeneric obj xdp sec $XDP_SECTION
+ip -force link set "$1" xdpoffload obj xdp sec $XDP_SECTION || (
+	echo "Failed to install in NIC, testing in driver..." && ip -force link set "$1" xdpdrv obj xdp sec $XDP_SECTION || (
+		echo "Failed to install in driver, using generic..." && ip -force link set "$1" xdpgeneric obj xdp sec $XDP_SECTION
 	)
 )
 echo "$STATS_RULES" > installed-rules.txt
