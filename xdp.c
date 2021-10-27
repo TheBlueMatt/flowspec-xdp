@@ -226,6 +226,29 @@ struct {
 #define SRC_HASH_BUCKET_COUNT_POW 4
 #define SRC_HASH_BUCKET_COUNT (1 << SRC_HASH_BUCKET_COUNT_POW)
 
+#define DO_RATE_LIMIT(do_lock, rate, time_masked, amt_in_pkt, limit_ns_per_pkt, matchbool) do { \
+if (rate) { \
+	do_lock; \
+	int64_t bucket_pkts = (rate->sent_time & (~RATE_TIME_MASK)) >> (64 - RATE_BUCKET_BITS); \
+	/* We mask the top 12 bits, so date overflows every 52 days, handled below */ \
+	int64_t time_diff = time_masked - ((int64_t)(rate->sent_time & RATE_TIME_MASK)); \
+	if (unlikely(time_diff < -1000000000 || time_diff > 16000000000)) { \
+		bucket_pkts = 0; \
+	} else { \
+		if (unlikely(time_diff < 0)) { time_diff = 0; } \
+		int64_t pkts_since_last = (time_diff << RATE_BUCKET_BITS) * ((uint64_t)amt_in_pkt) / ((uint64_t)limit_ns_per_pkt); \
+		bucket_pkts -= pkts_since_last; \
+	} \
+	if (bucket_pkts < (((1 << RATE_BUCKET_INTEGER_BITS) - 1) << RATE_BUCKET_DECIMAL_BITS)) { \
+		if (unlikely(bucket_pkts < 0)) bucket_pkts = 0; \
+		rate->sent_time = time_masked | ((bucket_pkts + (1 << RATE_BUCKET_DECIMAL_BITS)) << (64 - RATE_BUCKET_BITS)); \
+		matchbool = 0; \
+	} else { \
+		matchbool = 1; \
+	} \
+} \
+} while(0);
+
 #define CREATE_PERSRC_LOOKUP(IPV, IP_TYPE) \
 struct persrc_rate##IPV##_entry { \
 	uint64_t sent_time; \
@@ -237,19 +260,12 @@ struct persrc_rate##IPV##_bucket { \
 	struct persrc_rate##IPV##_entry entries[]; \
 }; \
  \
-struct persrc_rate##IPV##_ptr { \
-	struct persrc_rate##IPV##_entry *rate; \
-	struct bpf_spin_lock *lock; \
-}; \
- \
-__attribute__((always_inline)) \
-static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit, int64_t cur_time_masked) { \
-	struct persrc_rate##IPV##_ptr res = { .rate = NULL, .lock = NULL }; \
+static int check_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_limit, int64_t cur_time_masked, uint64_t amt, uint64_t limit_ns_per_pkt) { \
 	uint64_t hash = siphash_##IP_TYPE(key); \
  \
 	const uint32_t map_key = hash % SRC_HASH_MAX_PARALLELISM; \
 	struct persrc_rate##IPV##_bucket *buckets = bpf_map_lookup_elem(map, &map_key); \
-	if (!buckets) return res; \
+	if (!buckets) return 0; \
  \
 	hash >>= SRC_HASH_MAX_PARALLELISM_POW; \
 	map_limit >>= SRC_HASH_MAX_PARALLELISM_POW; \
@@ -261,9 +277,8 @@ static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYP
 	uint64_t min_sent_time = UINT64_MAX; \
 	for (int i = 0; i < SRC_HASH_BUCKET_COUNT; i++) { \
 		if (first_bucket[i].srcip == key) { \
-			res.rate = &first_bucket[i]; \
-			res.lock = &buckets->lock; \
-			return res; \
+			min_sent_idx = i; \
+			break; \
 		} \
 		int64_t time_offset = ((int64_t)cur_time_masked) - (first_bucket[i].sent_time & RATE_TIME_MASK); \
 		if (time_offset < RATE_MIN_TIME_OFFSET || time_offset > RATE_MAX_TIME_OFFSET) { \
@@ -275,11 +290,15 @@ static inline struct persrc_rate##IPV##_ptr get_v##IPV##_persrc_ratelimit(IP_TYP
 			min_sent_idx = i; \
 		} \
 	} \
-	res.rate = &first_bucket[min_sent_idx]; \
-	res.rate->srcip = key; \
-	res.rate->sent_time = 0; \
-	res.lock = &buckets->lock; \
-	return res; \
+	struct persrc_rate##IPV##_entry *entry = &first_bucket[min_sent_idx]; \
+	if (entry->srcip != key) { \
+		entry->srcip = key; \
+		entry->sent_time = 0; \
+	} \
+	int matched = 0; \
+	DO_RATE_LIMIT(, entry, cur_time_masked, amt, limit_ns_per_pkt, matched); \
+	bpf_spin_unlock(&buckets->lock); \
+	return matched; \
 }
 
 CREATE_PERSRC_LOOKUP(6, uint128_t)

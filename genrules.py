@@ -406,62 +406,40 @@ with open("rules.h", "w") as out:
 
                         first_action =   "int64_t time_masked = bpf_ktime_get_ns() & RATE_TIME_MASK;\n"
                         first_action += f"int64_t per_pkt_ns = (1000000000LL << RATE_BUCKET_INTEGER_BITS) / {math.floor(value)};\n"
+                        if ty == "0x8006" or ty == "0x8306":
+                            first_action += "uint64_t amt = data_end - pktdata;\n"
+                        else:
+                            first_action += "uint64_t amt = 1;\n"
                         if ty == "0x8006" or ty == "0x800c":
-                            spin_lock = "bpf_spin_lock(&rate->lock);"
-                            spin_unlock = "bpf_spin_unlock(&rate->lock);"
                             first_action += f"const uint32_t ratelimitidx = {ratelimitcnt};\n"
                             first_action += "struct ratelimit *rate = bpf_map_lookup_elem(&rate_map, &ratelimitidx);\n"
                             ratelimitcnt += 1
+                            first_action +=  "int matched = 0;\n"
+                            first_action += "DO_RATE_LIMIT(bpf_spin_lock(&rate->lock), rate, time_masked, amt, per_pkt_ns, matched);\n"
+                            first_action += "if (rate) { bpf_spin_unlock(&rate->lock); }\n"
                         else:
-                            spin_lock = "/* No locking as we're locked in get_v*_persrc_ratelimit */"
-                            spin_unlock = "bpf_spin_unlock(rate_ptr.lock);"
                             if proto == 4:
                                 if mid_byte > 32:
                                     continue
                                 first_action += f"const uint32_t srcip = ip->saddr & MASK4({mid_byte});\n"
                                 first_action += f"void *rate_map = &v4_src_rate_{len(v4persrcratelimits)};\n"
-                                first_action += f"struct persrc_rate4_ptr rate_ptr = get_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked);\n"
-                                first_action += f"struct persrc_rate4_entry *rate = rate_ptr.rate;\n"
+                                first_action += f"int matched = check_v4_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked, amt, per_pkt_ns);\n"
                                 v4persrcratelimits.append((high_byte + 1) * 4096)
                             elif mid_byte <= 64:
                                 first_action += f"const uint64_t srcip = BE128BEHIGH64(ip6->saddr & MASK6({mid_byte}));\n"
                                 first_action += f"void *rate_map = &v5_src_rate_{len(v5persrcratelimits)};\n"
-                                first_action += f"struct persrc_rate5_ptr rate_ptr = get_v5_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked);\n"
-                                first_action += f"struct persrc_rate5_entry *rate = rate_ptr.rate;\n"
+                                first_action += f"int matched = check_v5_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked, amt, per_pkt_ns);\n"
                                 v5persrcratelimits.append((high_byte + 1) * 4096)
                             else:
                                 if mid_byte > 128:
                                     continue
                                 first_action += f"const uint128_t srcip = ip6->saddr & MASK6({mid_byte});\n"
                                 first_action += f"void *rate_map = &v6_src_rate_{len(v6persrcratelimits)};\n"
-                                first_action += f"struct persrc_rate6_ptr rate_ptr = get_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked);\n"
-                                first_action += f"struct persrc_rate6_entry *rate = rate_ptr.rate;\n"
+                                first_action += f"int matched = check_v6_persrc_ratelimit(srcip, rate_map, {(high_byte + 1) * 4096}, time_masked, amt, per_pkt_ns);\n"
                                 v6persrcratelimits.append((high_byte + 1) * 4096)
-                        if ty == "0x8006" or ty == "0x8306":
-                            first_action += "uint64_t amt = data_end - pktdata;\n"
-                        else:
-                            first_action += "uint64_t amt = 1;\n"
-                        first_action +=  "if (rate) {\n"
-                        first_action += f"\t{spin_lock}\n"
-                        first_action +=  "\tint64_t bucket_pkts = (rate->sent_time & (~RATE_TIME_MASK)) >> (64 - RATE_BUCKET_BITS);\n"
-                        # We mask the top 12 bits, so date overflows every 52 days, handled below
-                        first_action +=  "\tint64_t time_diff = time_masked - ((int64_t)(rate->sent_time & RATE_TIME_MASK));\n"
-                        first_action +=  "\tif (unlikely(time_diff < -1000000000 || time_diff > 16000000000)) {\n"
-                        first_action +=  "\t\tbucket_pkts = 0;\n"
-                        first_action +=  "\t} else {\n"
-                        first_action +=  "\t\tif (unlikely(time_diff < 0)) { time_diff = 0; }\n"
-                        first_action += f"\t\tint64_t pkts_since_last = (time_diff << RATE_BUCKET_BITS) * amt / per_pkt_ns;\n"
-                        first_action +=  "\t\tbucket_pkts -= pkts_since_last;\n"
-                        first_action +=  "\t}\n"
-                        first_action +=  "\tif (bucket_pkts >= (((1 << RATE_BUCKET_INTEGER_BITS) - 1) << RATE_BUCKET_DECIMAL_BITS)) {\n"
-                        first_action += f"\t\t{spin_unlock}\n"
-                        first_action +=  "\t\t{stats_replace}\n"
-                        first_action +=  "\t\treturn XDP_DROP;\n"
-                        first_action +=  "\t} else {\n"
-                        first_action +=  "\t\tif (unlikely(bucket_pkts < 0)) bucket_pkts = 0;\n"
-                        first_action += f"\t\trate->sent_time = time_masked | ((bucket_pkts + (1 << RATE_BUCKET_DECIMAL_BITS)) << (64 - RATE_BUCKET_BITS));\n"
-                        first_action += f"\t\t{spin_unlock}\n"
-                        first_action +=  "\t}\n"
+                        first_action +=  "if (matched) {\n"
+                        first_action +=  "\t{stats_replace}\n"
+                        first_action +=  "\treturn XDP_DROP;\n"
                         first_action +=  "}\n"
                 elif ty == "0x8007":
                     if low_bytes & 1 == 0:
