@@ -320,9 +320,19 @@ with open("rules.h", "w") as out:
             else:
                 continue
 
-            def write_rule(r):
-                global rules4, rules6
-                if proto == 6:
+            # LLVM can be pretty bad at optimizing out common subexpressions. Ideally we'd optimize
+            # by pulling common subexpressions in back-to-back rules out into a single check, but
+            # that's a bunch of work that LLVM really should do for us. Instead, we blindly guess
+            # that source-address is the least likely to be a common subexpression and rely on LLVM
+            # managing to pull out common subexpressions as long as they're the first check(s). By
+            # placing source-address checks last, LLVM should do at least some work for us.
+            # See https://bugs.llvm.org/show_bug.cgi?id=52455
+            last_checks = ""
+            def write_rule(r, place_at_end=False):
+                global rules4, rules6, last_checks
+                if place_at_end:
+                    last_checks += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+                elif proto == 6:
                     rules6 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
                 else:
                     rules4 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
@@ -337,7 +347,7 @@ with open("rules.h", "w") as out:
                     else:
                         offset = None
                     if step.strip().startswith("src"):
-                        write_rule(ip_to_rule(proto, nets[0], "saddr", offset))
+                        write_rule(ip_to_rule(proto, nets[0], "saddr", offset), True)
                     else:
                         write_rule(ip_to_rule(proto, nets[0], "daddr", offset))
                 elif step.strip().startswith("proto") and proto == 4:
@@ -366,6 +376,11 @@ with open("rules.h", "w") as out:
                     pass
                 else:
                     assert False
+
+            if proto == 6:
+                rules6 += last_checks
+            else:
+                rules4 += last_checks
 
             # Now write the match handling!
             first_action = None
