@@ -273,9 +273,9 @@ static int check_v##IPV##_persrc_ratelimit(IP_TYPE key, void *map, size_t map_li
 	struct persrc_rate##IPV##_entry *first_bucket = &buckets->entries[(hash % map_limit) & (~(SRC_HASH_BUCKET_COUNT - 1))]; \
 	bpf_spin_lock(&buckets->lock); \
  \
-	int min_sent_idx = 0; \
+	uint64_t min_sent_idx = 0; /* Must be uint64_t or BPF verifier gets lost and thinks it can be any value */ \
 	uint64_t min_sent_time = UINT64_MAX; \
-	for (int i = 0; i < SRC_HASH_BUCKET_COUNT; i++) { \
+	for (uint64_t i = 0; i < SRC_HASH_BUCKET_COUNT; i++) { \
 		if (first_bucket[i].srcip == key) { \
 			min_sent_idx = i; \
 			break; \

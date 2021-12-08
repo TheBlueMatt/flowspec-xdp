@@ -21,9 +21,9 @@ STATS_RULES="$(echo "$RULES" | ./genrules.py --8021q=drop-vlan --v6frag=ignore-p
 clang $CLANG_ARGS -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-unused-function -O3 -emit-llvm -c xdp.c -o xdp.bc
 if [ "$2" != "" ]; then
 	clang $4 -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -O3 -emit-llvm -c "$2" -o wrapper.bc
-	llvm-link xdp.bc wrapper.bc | llc -O3 -march=bpf -filetype=obj -o xdp
+	llvm-link xdp.bc wrapper.bc | llc -O3 -march=bpf -mcpu=probe -filetype=obj -o xdp
 else
-	cat xdp.bc | llc -O3 -march=bpf -filetype=obj -o xdp
+	cat xdp.bc | llc -O3 -march=bpf -mcpu=probe -filetype=obj -o xdp
 fi
 
 echo "Before unload drop count was:"
