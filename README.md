@@ -6,9 +6,9 @@ to an XDP program. It currently supports the entire flowspec match grammar, rate
 action packet match counting (sample bit) and terminal bit, and traffic marking. The redirect
 community is not supported.
 
-Note that correctly sorting rules is *not* implemented as it requires implementing the flowspec
-wire serialization format and it may better be done inside bird/birdc. Thus, be vary careful using
-the terminal bit in the traffict action community.
+Note that correctly sorting rules is *not* fully implemented as it requires implementing the
+flowspec wire serialization format and it may better be done inside bird/birdc. Thus, be vary
+careful using the terminal bit in the traffict action community.
 
 In addition to the communities specified in RFC 8955, two additional communities are supported which
 provide rate-limiting on a per-source basis. When the upper two bytes in an extended community are

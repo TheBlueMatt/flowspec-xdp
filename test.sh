@@ -2,9 +2,15 @@
 
 set -e
 
+# DROP, sample, and change DSCP
 COMMUNITY_DROP="
 	Type: static univ
-	BGP.ext_community: (generic, 0x80060000, 0x0) (generic, 0x80070000, 0xf) (generic, 0x80090000, 0x3f)"
+	BGP.ext_community: (generic, 0x80060000, 0x0) (generic, 0x80070000, 0x3) (generic, 0x80090000, 0x3f)"
+# Sample and stop processing new rules
+COMMUNITY_TERMINAL_ACCEPT="
+	Type: static univ
+	BGP.ext_community: (generic, 0x80070000, 0x2)"
+
 
 DO_TEST() {
 	clang -g -std=c99 -pedantic -Wall -Wextra -Wno-pointer-arith -Wno-unused-variable -Wno-unused-function -Wno-tautological-constant-out-of-range-compare -Wno-unused-function -Wno-visibility -O3 -emit-llvm -c xdp.c -o xdp.bc
@@ -92,6 +98,16 @@ DO_TEST XDP_DROP
 
 echo "flow6 { icmp code != 0; };$COMMUNITY_DROP" | ./genrules.py --ihl=drop-options --8021q=drop-vlan --v6frag=drop-frags
 DO_TEST XDP_PASS
+
+# Test ordering of source addresses. If we hit TERMINAL_ACCEPT first (cause its a more specific
+# prefix), then we'll pass, otherwise we'll drop.
+echo "flow6 { src 2a01:4f8:130:71d2::2/128; };$COMMUNITY_TERMINAL_ACCEPT
+flow6 { src 2a01::/16; }; $COMMUNITY_DROP" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+DO_TEST XDP_PASS
+
+echo "flow6 { src 2a01::/16; };$COMMUNITY_TERMINAL_ACCEPT
+flow6 { src 2a01:4f8::/32; };$COMMUNITY_DROP" | ./genrules.py --ihl=accept-options --8021q=accept-vlan --v6frag=ignore
+DO_TEST XDP_DROP
 
 TEST_PKT='#define TEST \
 "\xcc\x2d\xe0\xf5\x02\xe1\x00\x0d\xb9\x50\x42\xfe\x81\x00\x00\x03" \
