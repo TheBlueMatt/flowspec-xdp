@@ -256,6 +256,69 @@ def flow_label_to_rule(rules):
     return f"""if (ip6 == NULL) break;
 if (!( {ast.write("((((uint32_t)(ip6->flow_lbl[0] & 0xf)) << 2*8) | (((uint32_t)ip6->flow_lbl[1]) << 1*8) | (uint32_t)ip6->flow_lbl[0])")} )) break;"""
 
+class RuleAction(Enum):
+    CONDITIONS = 1
+    ACTION = 2
+    LIST = 3
+class RuleNode:
+    def __init__(self, ty, action, inner):
+        self.ty = ty
+        self.action = action
+        self.inner = inner
+        if ty == RuleAction.ACTION:
+            assert inner is None
+            assert type(action) == str
+        elif ty == RuleAction.LIST:
+            assert type(inner) == list
+            assert action is None
+            for item in inner:
+                assert type(item) == RuleNode
+        else:
+            assert ty == RuleAction.CONDITIONS
+            assert type(action) == list
+            assert type(inner) == RuleNode
+
+    def maybe_join(self, neighbor):
+        if self.ty == RuleAction.CONDITIONS and neighbor.ty == RuleAction.CONDITIONS:
+            overlapping_conditions = [x for x in self.action if x in neighbor.action]
+            if len(overlapping_conditions) != 0:
+                us = RuleNode(RuleAction.CONDITIONS, [x for x in self.action if x not in overlapping_conditions], self.inner)
+                them = RuleNode(RuleAction.CONDITIONS, [x for x in neighbor.action if x not in overlapping_conditions], neighbor.inner)
+                self.action = overlapping_conditions
+                if self.inner.ty == RuleAction.LIST and us.action == []:
+                    self.inner.inner.append(them)
+                else:
+                    self.inner = RuleNode(RuleAction.LIST, None, [us, them])
+                self.inner.flatten()
+                return True
+        return False
+
+    def flatten(self):
+        # LLVM can be pretty bad at optimizing out common subexpressions. Thus, we have to do a
+        # pass here to toptimize out common subexpressions in back-to-back rules.
+        # See https://bugs.llvm.org/show_bug.cgi?id=52455
+        assert self.ty == RuleAction.LIST
+        did_update = True
+        while did_update:
+            did_update = False
+            for i in range(0, len(self.inner) - 1):
+                if self.inner[i].maybe_join(self.inner[i + 1]):
+                    del self.inner[i + 1]
+                    did_update = True
+                    break
+
+    def write(self, out, pfx="\t"):
+        if self.ty == RuleAction.CONDITIONS:
+            out.write(pfx + "do {\\\n")
+            for cond in self.action:
+                out.write("\t" + pfx + cond.strip().replace("\n", " \\\n\t" + pfx) + " \\\n")
+            self.inner.write(out, pfx)
+            out.write(pfx + "} while(0);\\\n")
+        elif self.ty == RuleAction.LIST:
+            for item in self.inner:
+                item.write(out, pfx + "\t")
+        else:
+            out.write("\t" + pfx + self.action.strip().replace("\n", " \\\n\t" + pfx) + " \\\n")
 
 with open("rules.h", "w") as out:
     parse = argparse.ArgumentParser()
@@ -291,8 +354,8 @@ with open("rules.h", "w") as out:
             assert False
         out.write("#define REQ_8021Q " + args.vlan_tag + "\n")
 
-    rules6 = ""
-    rules4 = ""
+    rules6 = []
+    rules4 = []
     use_v6_frags = False
     stats_rulecnt = 0
     ratelimitcnt = 0
@@ -313,29 +376,15 @@ with open("rules.h", "w") as out:
             t = lastrule.split("{")
             if t[0].strip() == "flow4":
                 proto = 4
-                rules4 += "\tdo {\\\n"
             elif t[0].strip() == "flow6":
                 proto = 6
-                rules6 += "\tdo {\\\n"
             else:
                 continue
 
-            # LLVM can be pretty bad at optimizing out common subexpressions. Ideally we'd optimize
-            # by pulling common subexpressions in back-to-back rules out into a single check, but
-            # that's a bunch of work that LLVM really should do for us. Instead, we blindly guess
-            # that source-address is the least likely to be a common subexpression and rely on LLVM
-            # managing to pull out common subexpressions as long as they're the first check(s). By
-            # placing source-address checks last, LLVM should do at least some work for us.
-            # See https://bugs.llvm.org/show_bug.cgi?id=52455
-            last_checks = ""
-            def write_rule(r, place_at_end=False):
-                global rules4, rules6, last_checks
-                if place_at_end:
-                    last_checks += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
-                elif proto == 6:
-                    rules6 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
-                else:
-                    rules4 += "\t\t" + r.replace("\n", " \\\n\t\t") + " \\\n"
+            conditions = []
+            def write_rule(r):
+                global conditions
+                conditions.append(r + "\n")
 
             rule = t[1].split("}")[0].strip()
             for step in rule.split(";"):
@@ -347,7 +396,7 @@ with open("rules.h", "w") as out:
                     else:
                         offset = None
                     if step.strip().startswith("src"):
-                        write_rule(ip_to_rule(proto, nets[0], "saddr", offset), True)
+                        write_rule(ip_to_rule(proto, nets[0], "saddr", offset))
                     else:
                         write_rule(ip_to_rule(proto, nets[0], "daddr", offset))
                 elif step.strip().startswith("proto") and proto == 4:
@@ -377,10 +426,10 @@ with open("rules.h", "w") as out:
                 else:
                     assert False
 
-            if proto == 6:
-                rules6 += last_checks
-            else:
-                rules4 += last_checks
+            actions = ""
+            def write_rule(r):
+                global actions
+                actions += r + "\n"
 
             # Now write the match handling!
             first_action = None
@@ -485,9 +534,9 @@ with open("rules.h", "w") as out:
             if last_action is not None:
                 write_rule(last_action)
             if proto == 6:
-                rules6 += "\t} while(0);\\\n"
+                rules6.append(RuleNode(RuleAction.CONDITIONS, conditions, RuleNode(RuleAction.ACTION, actions, None)))
             else:
-                rules4 += "\t} while(0);\\\n"
+                rules4.append(RuleNode(RuleAction.CONDITIONS, conditions, RuleNode(RuleAction.ACTION, actions, None)))
             if stats_action != "":
                 print(rule)
                 stats_rulecnt += 1
@@ -497,12 +546,26 @@ with open("rules.h", "w") as out:
     out.write(f"#define STATS_RULECNT {stats_rulecnt}\n")
     if ratelimitcnt != 0:
         out.write(f"#define RATE_CNT {ratelimitcnt}\n")
-    if rules4 != "":
+
+    # Here we should probably sort the rules according to flowspec's sorting rules. We don't bother
+    # however, because its annoying.
+
+    if len(rules4) != 0:
         out.write("#define NEED_V4_PARSE\n")
-        out.write("#define RULES4 {\\\n" + rules4 + "}\n")
-    if rules6:
+        out.write("#define RULES4 {\\\n")
+        rules4 = RuleNode(RuleAction.LIST, None, rules4)
+        rules4.flatten()
+        rules4.write(out)
+        out.write("}\n")
+
+    if len(rules6) != 0:
         out.write("#define NEED_V6_PARSE\n")
-        out.write("#define RULES6 {\\\n" + rules6 + "}\n")
+        out.write("#define RULES6 {\\\n")
+        rules6 = RuleNode(RuleAction.LIST, None, rules6)
+        rules6.flatten()
+        rules6.write(out)
+        out.write("}\n")
+
     if args.v6frag == "ignore-parse-if-rule":
         if use_v6_frags:
             out.write("#define PARSE_V6_FRAG PARSE\n")
