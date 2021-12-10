@@ -26,9 +26,6 @@ else
 	cat xdp.bc | llc -O3 -march=bpf -mcpu=probe -filetype=obj -o xdp
 fi
 
-echo "Before unload drop count was:"
-./dropcount.sh || echo "Not loaded"
-
 # Note that sometimes the automated fallback does not work properly so we have to || generic here
 ip -force link set "$1" xdpoffload obj xdp sec $XDP_SECTION || (
 	echo "Failed to install in NIC, testing in driver..." && ip -force link set "$1" xdpdrv obj xdp sec $XDP_SECTION || (
